@@ -1,0 +1,146 @@
+<?php
+// app/Config/Routes.php
+use CodeIgniter\Router\RouteCollection;
+
+/** @var RouteCollection $routes */
+
+// ─── Public routes ──────────────────────────────────────────
+$routes->get('/',        'Auth::login');
+$routes->get('login',    'Auth::login');
+$routes->post('login',   'Auth::doLogin');
+$routes->get('logout',   'Auth::logout');
+$routes->get('forgot-password',  'Auth::forgotPassword');
+$routes->post('forgot-password', 'Auth::sendReset');
+$routes->get('reset-password/(:segment)',  'Auth::resetPassword/$1');
+$routes->post('reset-password/(:segment)', 'Auth::doReset/$1');
+
+// ─── Authenticated routes ────────────────────────────────────
+$routes->group('', ['filter' => 'auth'], function ($routes) {
+
+    // Dashboard
+    $routes->get('dashboard', 'Dashboard::index');
+
+    // ── Players ──────────────────────────────────────────────
+    $routes->group('players', function ($routes) {
+        $routes->get('/',              'Players::index');
+        $routes->get('create',         'Players::create');
+        $routes->post('store',         'Players::store');
+        $routes->get('view/(:num)',    'Players::view/$1');
+        $routes->get('edit/(:num)',    'Players::edit/$1');
+        $routes->post('update/(:num)', 'Players::update/$1');
+        $routes->post('delete/(:num)', 'Players::delete/$1');
+        $routes->get('verify-aadhaar/(:num)', 'Players::verifyAadhaar/$1');
+        $routes->get('export',         'Players::export');
+        $routes->get('stats/(:num)',   'Players::stats/$1');
+    });
+
+    // ── Tournaments ───────────────────────────────────────────
+    $routes->group('tournaments', function ($routes) {
+        $routes->get('/',              'Tournaments::index');
+        $routes->get('create',         'Tournaments::create');
+        $routes->post('store',         'Tournaments::store');
+        $routes->get('view/(:num)',    'Tournaments::view/$1');
+        $routes->get('edit/(:num)',    'Tournaments::edit/$1');
+        $routes->post('update/(:num)', 'Tournaments::update/$1');
+        $routes->post('delete/(:num)', 'Tournaments::delete/$1');
+        $routes->get('teams/(:num)',   'Tournaments::teams/$1');
+        $routes->post('add-team/(:num)', 'Tournaments::addTeam/$1');
+    });
+
+    // ── Fixtures ──────────────────────────────────────────────
+    $routes->group('fixtures', function ($routes) {
+        $routes->get('/',                        'Fixtures::index');
+        $routes->get('tournament/(:num)',        'Fixtures::tournament/$1');
+        $routes->get('generate/(:num)',          'Fixtures::generateForm/$1');
+        $routes->post('auto-generate/(:num)',    'Fixtures::autoGenerate/$1');
+        $routes->get('upload/(:num)',            'Fixtures::uploadForm/$1');
+        $routes->post('upload-process/(:num)',   'Fixtures::uploadProcess/$1');
+        $routes->get('download-template',        'Fixtures::downloadTemplate');
+        $routes->get('view/(:num)',              'Fixtures::view/$1');
+        $routes->get('edit/(:num)',              'Fixtures::edit/$1');
+        $routes->post('update/(:num)',           'Fixtures::update/$1');
+        $routes->post('delete/(:num)',           'Fixtures::delete/$1');
+        $routes->get('export/(:num)',            'Fixtures::export/$1');
+    });
+
+    // ── Matches / Scoring ─────────────────────────────────────
+    $routes->group('matches', function ($routes) {
+        $routes->get('live',               'Matches::live');
+        $routes->get('score/(:num)',       'Matches::score/$1');
+        $routes->post('save-score/(:num)', 'Matches::saveScore/$1');
+        $routes->get('scorecard/(:num)',   'Matches::scorecard/$1');
+        $routes->post('complete/(:num)',   'Matches::complete/$1');
+    });
+
+    // ── Officials ─────────────────────────────────────────────
+    $routes->group('officials', function ($routes) {
+        $routes->get('/',              'Officials::index');
+        $routes->get('create',         'Officials::create');
+        $routes->post('store',         'Officials::store');
+        $routes->get('view/(:num)',    'Officials::view/$1');
+        $routes->get('edit/(:num)',    'Officials::edit/$1');
+        $routes->post('update/(:num)', 'Officials::update/$1');
+        $routes->get('availability/(:num)', 'Officials::availability/$1');
+    });
+
+    // ── Finance ───────────────────────────────────────────────
+    $routes->group('finance', function ($routes) {
+        $routes->get('/',                       'Finance::index');
+        $routes->get('vouchers',                'Finance::vouchers');
+        $routes->get('voucher/create',          'Finance::createVoucher');
+        $routes->post('voucher/store',          'Finance::storeVoucher');
+        $routes->get('voucher/view/(:num)',     'Finance::viewVoucher/$1');
+        $routes->post('voucher/approve/(:num)', 'Finance::approveVoucher/$1');
+        $routes->post('voucher/reject/(:num)',  'Finance::rejectVoucher/$1');
+        $routes->post('voucher/mark-paid/(:num)', 'Finance::markPaid/$1');
+        $routes->get('auto-generate/(:num)',    'Finance::autoGenerate/$1');
+        $routes->get('reports',                 'Finance::reports');
+        $routes->get('export',                  'Finance::export');
+    });
+
+    // ── Analytics ─────────────────────────────────────────────
+    $routes->group('analytics', function ($routes) {
+        $routes->get('/',                    'Analytics::index');
+        $routes->get('players',             'Analytics::players');
+        $routes->get('tournaments',         'Analytics::tournaments');
+        $routes->get('venues',              'Analytics::venues');
+        $routes->get('officials',           'Analytics::officials');
+        $routes->get('player/(:num)',       'Analytics::player/$1');
+    });
+
+    // ── Reports ───────────────────────────────────────────────
+    $routes->group('reports', function ($routes) {
+        $routes->get('tournament/(:num)', 'Reports::tournament/$1');
+        $routes->get('finance',           'Reports::finance');
+        $routes->get('players',           'Reports::players');
+        $routes->get('season',            'Reports::season');
+    });
+
+    // ── Users / Admin ─────────────────────────────────────────
+    $routes->group('admin', ['filter' => 'role:superadmin,admin'], function ($routes) {
+        $routes->get('users',              'Admin::users');
+        $routes->get('users/create',       'Admin::createUser');
+        $routes->post('users/store',       'Admin::storeUser');
+        $routes->get('users/edit/(:num)',  'Admin::editUser/$1');
+        $routes->post('users/update/(:num)', 'Admin::updateUser/$1');
+        $routes->post('users/toggle/(:num)', 'Admin::toggleUser/$1');
+        $routes->get('audit-log',          'Admin::auditLog');
+        $routes->get('settings',           'Admin::settings');
+        $routes->post('settings/save',     'Admin::saveSettings');
+    });
+
+    // ── Profile ───────────────────────────────────────────────
+    $routes->get('profile',       'Profile::index');
+    $routes->post('profile/save', 'Profile::save');
+});
+
+// ─── REST API routes (for mobile / CricHeroes sync) ─────────
+$routes->group('api/v1', ['filter' => 'api_auth'], function ($routes) {
+    $routes->get('players',             'Api\Players::index');
+    $routes->get('players/(:num)',      'Api\Players::show/$1');
+    $routes->get('fixtures/(:num)',     'Api\Fixtures::byTournament/$1');
+    $routes->post('scores/(:num)',      'Api\Scores::store/$1');
+    $routes->get('stats/player/(:num)', 'Api\Stats::player/$1');
+    $routes->get('tournaments',         'Api\Tournaments::index');
+    $routes->get('tournaments/(:num)',  'Api\Tournaments::show/$1');
+});
