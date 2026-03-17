@@ -73,7 +73,9 @@ class Players extends BaseController
             'district_id'    => 'required|is_natural_no_zero',
             'role'           => 'required|in_list[Batsman,Bowler,All-rounder,Wicket-keeper]',
             'aadhaar_number' => 'permit_empty|exact_length[12]|numeric',
-            'phone'          => 'permit_empty|min_length[10]|max_length[15]',
+            'phone'          => 'permit_empty|regex_match[/^[6-9][0-9]{9}$/]',
+            'guardian_phone' => 'permit_empty|regex_match[/^[6-9][0-9]{9}$/]',
+            'pin_code'       => 'permit_empty|exact_length[6]|numeric',
             'email'          => 'permit_empty|valid_email',
         ];
 
@@ -102,6 +104,14 @@ class Players extends BaseController
             $photoPath = 'uploads/players/' . $photoName;
         }
 
+        $addressParts = array_filter([
+            $post['address_line1'] ?? '',
+            $post['city']          ?? '',
+            $post['state']         ?? '',
+            !empty($post['pin_code']) ? 'PIN: ' . $post['pin_code'] : '',
+        ]);
+        $address = implode(', ', $addressParts) ?: null;
+
         $data = [
             'jsca_player_id'  => $this->generatePlayerId(),
             'full_name'       => $post['full_name'],
@@ -115,11 +125,11 @@ class Players extends BaseController
             'aadhaar_number'  => $post['aadhaar_number'] ?? null,
             'phone'           => $post['phone'] ?? null,
             'email'           => $post['email'] ?? null,
-            'address'         => $post['address'] ?? null,
+            'address'         => $address,
             'guardian_name'   => $post['guardian_name'] ?? null,
             'guardian_phone'  => $post['guardian_phone'] ?? null,
             'photo_path'      => $photoPath,
-            'registered_by'   => session('user_id'),
+            'registered_by'   => session('user_id') ?: null,
             'created_at'      => date('Y-m-d H:i:s'),
         ];
 
@@ -138,12 +148,14 @@ class Players extends BaseController
     // ── GET /players/view/:id ────────────────────────────────
     public function view(int $id)
     {
-        $player = $this->db->table('players p')
-            ->select('p.*, d.name as district_name, d.zone, u.full_name as registered_by_name')
-            ->join('districts d', 'd.id = p.district_id')
-            ->join('users u', 'u.id = p.registered_by', 'left')
-            ->where('p.id', $id)
-            ->get()->getRowArray();
+        $player = $this->db->query(
+            'SELECT p.*, d.name as district_name, d.zone, u.full_name as registered_by_name
+             FROM players p
+             JOIN districts d ON d.id = p.district_id
+             LEFT JOIN users u ON u.id = p.registered_by
+             WHERE p.id = ?',
+            [$id]
+        )->getRowArray();
 
         if (!$player) {
             return redirect()->to('/players')->with('error', 'Player not found.');
@@ -151,15 +163,19 @@ class Players extends BaseController
 
         $stats = $this->db->table('player_career_stats')->where('player_id', $id)->get()->getRowArray();
 
-        $recentMatches = $this->db->table('batting_stats bs')
-            ->select('bs.*, f.match_date, f.match_number, t.name as tournament_name, tm.name as opponent_name')
-            ->join('fixtures f', 'f.id = bs.fixture_id')
-            ->join('tournaments t', 't.id = f.tournament_id')
-            ->join('teams tm', 'IF(f.team_a_id = bs.team_id, f.team_b_id, f.team_a_id) = tm.id')
-            ->where('bs.player_id', $id)
-            ->orderBy('f.match_date', 'DESC')
-            ->limit(10)
-            ->get()->getResultArray();
+        $recentMatches = $this->db->query(
+            'SELECT bs.*, f.match_date, f.match_number,
+                    t.name as tournament_name,
+                    tm.name as opponent_name
+             FROM batting_stats bs
+             JOIN fixtures f ON f.id = bs.fixture_id
+             JOIN tournaments t ON t.id = f.tournament_id
+             JOIN teams tm ON tm.id = IF(f.team_a_id = bs.team_id, f.team_b_id, f.team_a_id)
+             WHERE bs.player_id = ?
+             ORDER BY f.match_date DESC
+             LIMIT 10',
+            [$id]
+        )->getResultArray();
 
         return $this->render('players/view', [
             'pageTitle'     => $player['full_name'] . ' — Player Profile',
