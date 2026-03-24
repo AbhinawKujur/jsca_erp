@@ -11,9 +11,20 @@ class Coaches extends BaseController
         $level  = $this->request->getGet('level');
         $status = $this->request->getGet('status') ?? 'Active';
 
+        $allowedIds = $this->getAllowedDistrictIdsFlat();
+
         $builder = $this->db->table('coaches c')
             ->select('c.*, d.name as district_name')
             ->join('districts d', 'd.id = c.district_id', 'left');
+
+        // District RBAC
+        if (($this->currentUser['role_name'] ?? '') !== 'superadmin') {
+            if (empty($allowedIds)) {
+                $builder->where('1=0');
+            } else {
+                $builder->whereIn('c.district_id', $allowedIds);
+            }
+        }
 
         if ($search) {
             $builder->groupStart()
@@ -41,9 +52,16 @@ class Coaches extends BaseController
     public function create()
     {
         $this->requirePermission('coaches');
+
+        $allowedIds = $this->getAllowedDistrictIdsFlat();
+        $districtQuery = $this->db->table('districts')->where('is_active', 1)->orderBy('name');
+        if (($this->currentUser['role_name'] ?? '') !== 'superadmin' && !empty($allowedIds)) {
+            $districtQuery->whereIn('id', $allowedIds);
+        }
+
         return $this->render('coaches/create', [
             'pageTitle' => 'Register Coach — JSCA ERP',
-            'districts' => $this->db->table('districts')->where('is_active', 1)->orderBy('name')->get()->getResultArray(),
+            'districts' => $districtQuery->get()->getResultArray(),
         ]);
     }
 
@@ -65,6 +83,12 @@ class Coaches extends BaseController
             return redirect()->back()->with('errors', $this->validator->getErrors())->withInput();
         }
 
+        // District access check
+        $districtId = $this->request->getPost('district_id') ?: null;
+        if ($districtId && !$this->canAccessDistrict((int)$districtId)) {
+            return redirect()->back()->with('error', 'You do not have access to the selected district.')->withInput();
+        }
+
         $post = $this->request->getPost();
 
         $photoPath = null;
@@ -83,7 +107,7 @@ class Coaches extends BaseController
             'phone'            => $post['phone']            ?? null,
             'email'            => $post['email']            ?? null,
             'address'          => $post['address']          ?? null,
-            'district_id'      => $post['district_id']      ?: null,
+            'district_id'      => $districtId,
             'specialization'   => $post['specialization']   ?? 'General',
             'level'            => $post['level']            ?? 'Assistant',
             'bcci_coach_id'    => $post['bcci_coach_id']    ?? null,
@@ -115,6 +139,10 @@ class Coaches extends BaseController
 
         if (!$coach) return redirect()->to('coaches')->with('error', 'Coach not found.');
 
+        if ($coach['district_id'] && !$this->canAccessDistrict((int)$coach['district_id'])) {
+            return redirect()->to('coaches')->with('error', 'Access denied for this district.');
+        }
+
         $documents = $this->db->table('coach_documents')
             ->where('coach_id', $id)
             ->orderBy('created_at', 'DESC')
@@ -144,10 +172,20 @@ class Coaches extends BaseController
         $coach = $this->db->table('coaches')->where('id', $id)->get()->getRowArray();
         if (!$coach) return redirect()->to('coaches')->with('error', 'Coach not found.');
 
+        if ($coach['district_id'] && !$this->canAccessDistrict((int)$coach['district_id'])) {
+            return redirect()->to('coaches')->with('error', 'Access denied for this district.');
+        }
+
+        $allowedIds = $this->getAllowedDistrictIdsFlat();
+        $districtQuery = $this->db->table('districts')->where('is_active', 1)->orderBy('name');
+        if (($this->currentUser['role_name'] ?? '') !== 'superadmin' && !empty($allowedIds)) {
+            $districtQuery->whereIn('id', $allowedIds);
+        }
+
         return $this->render('coaches/edit', [
             'pageTitle' => 'Edit Coach — JSCA ERP',
             'coach'     => $coach,
-            'districts' => $this->db->table('districts')->where('is_active', 1)->orderBy('name')->get()->getResultArray(),
+            'districts' => $districtQuery->get()->getResultArray(),
         ]);
     }
 
@@ -157,6 +195,10 @@ class Coaches extends BaseController
         $this->requirePermission('coaches');
         $old = $this->db->table('coaches')->where('id', $id)->get()->getRowArray();
         if (!$old) return redirect()->to('coaches')->with('error', 'Coach not found.');
+
+        if ($old['district_id'] && !$this->canAccessDistrict((int)$old['district_id'])) {
+            return redirect()->to('coaches')->with('error', 'Access denied for this district.');
+        }
 
         $rules = [
             'full_name' => 'required|min_length[3]|max_length[100]',
@@ -203,6 +245,10 @@ class Coaches extends BaseController
         $this->requirePermission('coaches');
         $coach = $this->db->table('coaches')->where('id', $id)->get()->getRowArray();
         if (!$coach) return redirect()->to('coaches')->with('error', 'Coach not found.');
+
+        if ($coach['district_id'] && !$this->canAccessDistrict((int)$coach['district_id'])) {
+            return redirect()->to('coaches')->with('error', 'Access denied for this district.');
+        }
 
         $this->db->table('coaches')->where('id', $id)->update([
             'status'     => 'Inactive',

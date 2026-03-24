@@ -41,6 +41,75 @@ abstract class BaseController extends Controller
         }
     }
 
+    // ── District access helpers ───────────────────────────────
+
+    /**
+     * Returns array of district IDs the current user can access.
+     * superadmin gets ALL districts. Others get only assigned ones.
+     */
+    protected function getAllowedDistrictIds(): array
+    {
+        if (!$this->currentUser) return [];
+
+        // superadmin sees everything
+        if (($this->currentUser['role_name'] ?? '') === 'superadmin') {
+            return $this->db->table('districts')
+                ->select('id')->where('is_active', 1)
+                ->get()->getResultArray();
+            // return flat array of ids
+        }
+
+        // Use session cache to avoid repeated queries
+        $cached = $this->session->get('allowed_district_ids');
+        if ($cached !== null) return $cached;
+
+        $rows = $this->db->table('user_districts')
+            ->select('district_id')
+            ->where('user_id', $this->currentUser['id'])
+            ->get()->getResultArray();
+
+        $ids = array_column($rows, 'district_id');
+        $this->session->set('allowed_district_ids', $ids);
+        return $ids;
+    }
+
+    /**
+     * Flat array of district IDs (ints). superadmin = all.
+     */
+    protected function getAllowedDistrictIdsFlat(): array
+    {
+        if (!$this->currentUser) return [];
+
+        if (($this->currentUser['role_name'] ?? '') === 'superadmin') {
+            $rows = $this->db->table('districts')
+                ->select('id')->where('is_active', 1)
+                ->get()->getResultArray();
+            return array_column($rows, 'id');
+        }
+
+        $cached = $this->session->get('allowed_district_ids');
+        if ($cached !== null) return $cached;
+
+        $rows = $this->db->table('user_districts')
+            ->select('district_id')
+            ->where('user_id', $this->currentUser['id'])
+            ->get()->getResultArray();
+
+        $ids = array_column($rows, 'district_id');
+        $this->session->set('allowed_district_ids', $ids);
+        return $ids;
+    }
+
+    /**
+     * Check if current user can access a specific district.
+     */
+    protected function canAccessDistrict(int $districtId): bool
+    {
+        if (!$this->currentUser) return false;
+        if (($this->currentUser['role_name'] ?? '') === 'superadmin') return true;
+        return in_array($districtId, $this->getAllowedDistrictIdsFlat());
+    }
+
     // ── Render view with layout ──────────────────────────────
     protected function render(string $view, array $data = []): string
     {

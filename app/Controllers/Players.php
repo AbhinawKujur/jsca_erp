@@ -16,9 +16,20 @@ class Players extends BaseController
         $status   = $this->request->getGet('status') ?? 'Active';
         $perPage  = 25;
 
+        $allowedIds = $this->getAllowedDistrictIdsFlat();
+
         $builder = $this->db->table('players p')
             ->select('p.*, d.name as district_name, d.zone')
             ->join('districts d', 'd.id = p.district_id');
+
+        // District RBAC
+        if (($this->currentUser['role_name'] ?? '') !== 'superadmin') {
+            if (empty($allowedIds)) {
+                $builder->where('1=0');
+            } else {
+                $builder->whereIn('p.district_id', $allowedIds);
+            }
+        }
 
         if ($search) {
             $builder->groupStart()
@@ -28,7 +39,7 @@ class Players extends BaseController
                 ->groupEnd();
         }
         if ($category) $builder->where('p.age_category', $category);
-        if ($district)  $builder->where('p.district_id', $district);
+        if ($district && $this->canAccessDistrict((int)$district)) $builder->where('p.district_id', $district);
         if ($status)    $builder->where('p.status', $status);
 
         $total   = $builder->countAllResults(false);
@@ -36,6 +47,11 @@ class Players extends BaseController
         $players = $builder->orderBy('p.full_name', 'ASC')
             ->limit($perPage, ($page - 1) * $perPage)
             ->get()->getResultArray();
+
+        $districtQuery = $this->db->table('districts')->orderBy('name');
+        if (($this->currentUser['role_name'] ?? '') !== 'superadmin' && !empty($allowedIds)) {
+            $districtQuery->whereIn('id', $allowedIds);
+        }
 
         return $this->render('players/index', [
             'pageTitle' => 'Players — JSCA ERP',
@@ -46,7 +62,7 @@ class Players extends BaseController
             'search'    => $search,
             'category'  => $category,
             'district'  => $district,
-            'districts' => $this->db->table('districts')->orderBy('name')->get()->getResultArray(),
+            'districts' => $districtQuery->get()->getResultArray(),
         ]);
     }
 
@@ -55,9 +71,15 @@ class Players extends BaseController
     {
         $this->requirePermission('players.create');
 
+        $allowedIds = $this->getAllowedDistrictIdsFlat();
+        $districtQuery = $this->db->table('districts')->where('is_active', 1)->orderBy('name');
+        if (($this->currentUser['role_name'] ?? '') !== 'superadmin' && !empty($allowedIds)) {
+            $districtQuery->whereIn('id', $allowedIds);
+        }
+
         return $this->render('players/create', [
             'pageTitle' => 'Register Player — JSCA ERP',
-            'districts' => $this->db->table('districts')->where('is_active', 1)->orderBy('name')->get()->getResultArray(),
+            'districts' => $districtQuery->get()->getResultArray(),
         ]);
     }
 
@@ -81,6 +103,11 @@ class Players extends BaseController
 
         if (!$this->validate($rules)) {
             return redirect()->back()->with('errors', $this->validator->getErrors())->withInput();
+        }
+
+        // District access check
+        if (!$this->canAccessDistrict((int)$this->request->getPost('district_id'))) {
+            return redirect()->back()->with('error', 'You do not have access to the selected district.')->withInput();
         }
 
         $post = $this->request->getPost();
@@ -161,6 +188,10 @@ class Players extends BaseController
             return redirect()->to('/players')->with('error', 'Player not found.');
         }
 
+        if (!$this->canAccessDistrict((int)$player['district_id'])) {
+            return redirect()->to('/players')->with('error', 'Access denied for this district.');
+        }
+
         $stats = $this->db->table('player_career_stats')->where('player_id', $id)->get()->getRowArray();
 
         $recentMatches = $this->db->query(
@@ -194,10 +225,20 @@ class Players extends BaseController
         $player = $this->db->table('players')->where('id', $id)->get()->getRowArray();
         if (!$player) return redirect()->to('/players')->with('error', 'Player not found.');
 
+        if (!$this->canAccessDistrict((int)$player['district_id'])) {
+            return redirect()->to('/players')->with('error', 'Access denied for this district.');
+        }
+
+        $allowedIds = $this->getAllowedDistrictIdsFlat();
+        $districtQuery = $this->db->table('districts')->where('is_active', 1)->orderBy('name');
+        if (($this->currentUser['role_name'] ?? '') !== 'superadmin' && !empty($allowedIds)) {
+            $districtQuery->whereIn('id', $allowedIds);
+        }
+
         return $this->render('players/edit', [
             'pageTitle' => 'Edit Player — JSCA ERP',
             'player'    => $player,
-            'districts' => $this->db->table('districts')->where('is_active', 1)->orderBy('name')->get()->getResultArray(),
+            'districts' => $districtQuery->get()->getResultArray(),
         ]);
     }
 
@@ -208,6 +249,10 @@ class Players extends BaseController
 
         $old  = $this->db->table('players')->where('id', $id)->get()->getRowArray();
         if (!$old) return redirect()->to('/players')->with('error', 'Player not found.');
+
+        if (!$this->canAccessDistrict((int)$old['district_id'])) {
+            return redirect()->to('/players')->with('error', 'Access denied for this district.');
+        }
 
         $rules = [
             'full_name'  => 'required|min_length[3]|max_length[100]',
@@ -258,7 +303,10 @@ class Players extends BaseController
         $player = $this->db->table('players')->where('id', $id)->get()->getRowArray();
         if (!$player) return redirect()->to('/players')->with('error', 'Player not found.');
 
-        // Soft delete — just mark as Inactive
+        if (!$this->canAccessDistrict((int)$player['district_id'])) {
+            return redirect()->to('/players')->with('error', 'Access denied for this district.');
+        }
+
         $this->db->table('players')->where('id', $id)->update([
             'status'     => 'Inactive',
             'updated_at' => date('Y-m-d H:i:s'),
@@ -276,8 +324,6 @@ class Players extends BaseController
         $player = $this->db->table('players')->where('id', $id)->get()->getRowArray();
         if (!$player) return $this->response->setJSON(['success' => false, 'message' => 'Not found']);
 
-        // In production — call actual UIDAI API here
-        // For demo: mark as verified
         $this->db->table('players')->where('id', $id)->update([
             'aadhaar_verified' => 1,
             'updated_at'       => date('Y-m-d H:i:s'),
@@ -296,13 +342,18 @@ class Players extends BaseController
     {
         $this->requirePermission('reports');
 
-        $players = $this->db->table('players p')
+        $allowedIds = $this->getAllowedDistrictIdsFlat();
+        $builder = $this->db->table('players p')
             ->select('p.jsca_player_id, p.full_name, p.date_of_birth, p.gender, p.age_category, p.role, p.batting_style, p.bowling_style, p.phone, p.email, p.status, p.aadhaar_verified, d.name as district')
             ->join('districts d', 'd.id = p.district_id')
-            ->orderBy('p.full_name')
-            ->get()->getResultArray();
+            ->orderBy('p.full_name');
 
-        // Build CSV
+        if (($this->currentUser['role_name'] ?? '') !== 'superadmin' && !empty($allowedIds)) {
+            $builder->whereIn('p.district_id', $allowedIds);
+        }
+
+        $players = $builder->get()->getResultArray();
+
         $filename = 'JSCA_Players_' . date('Ymd_His') . '.csv';
         header('Content-Type: text/csv');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
@@ -349,7 +400,6 @@ class Players extends BaseController
             'created_at'  => date('Y-m-d H:i:s'),
         ]);
 
-        // Auto-mark aadhaar verified when both sides uploaded
         if (in_array($docType, ['aadhaar_front', 'aadhaar_back'])) {
             $sides = $this->db->table('player_documents')
                 ->whereIn('doc_type', ['aadhaar_front','aadhaar_back'])
@@ -403,7 +453,6 @@ class Players extends BaseController
 
         $runs          = array_sum(array_column($batting, 'runs'));
         $innings        = count(array_filter($batting, fn($r) => $r['dismissal'] !== 'not out'));
-        $notOuts        = count(array_filter($batting, fn($r) => $r['dismissal'] === 'not out'));
         $battingAvg     = ($innings > 0) ? round($runs / $innings, 2) : 0;
         $totalBalls     = array_sum(array_column($batting, 'balls_faced'));
         $strikeRate     = ($totalBalls > 0) ? round($runs / $totalBalls * 100, 2) : 0;

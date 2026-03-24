@@ -59,12 +59,23 @@ class Auth extends BaseController
                 ->with('error', 'Your account has been disabled. Contact administrator.');
         }
 
+        // Load allowed districts for this user
+        $districtIds = [];
+        if ($user['role_name'] !== 'superadmin') {
+            $rows = $this->db->table('user_districts')
+                ->select('district_id')
+                ->where('user_id', $user['id'])
+                ->get()->getResultArray();
+            $districtIds = array_column($rows, 'district_id');
+        }
+
         // Store session
         session()->set([
-            'user_id'   => $user['id'],
-            'user_name' => $user['full_name'],
-            'user_role' => $user['role_name'],
-            'user_email'=> $user['email'],
+            'user_id'              => $user['id'],
+            'user_name'            => $user['full_name'],
+            'user_role'            => $user['role_name'],
+            'user_email'           => $user['email'],
+            'allowed_district_ids' => $districtIds,
         ]);
 
         // Update last login

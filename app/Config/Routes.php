@@ -21,7 +21,7 @@ $routes->group('', ['filter' => 'auth'], function ($routes) {
     $routes->get('dashboard', 'Dashboard::index');
 
     // ── Players ──────────────────────────────────────────────
-    $routes->group('players', function ($routes) {
+    $routes->group('players', ['filter' => 'rbac:players,players.view,players.create'], function ($routes) {
         $routes->get('/',              'Players::index');
         $routes->get('create',         'Players::create');
         $routes->post('store',         'Players::store');
@@ -38,7 +38,7 @@ $routes->group('', ['filter' => 'auth'], function ($routes) {
     });
 
     // ── Coaches ───────────────────────────────────────────────
-    $routes->group('coaches', function ($routes) {
+    $routes->group('coaches', ['filter' => 'rbac:coaches,coaches.view,coaches.create'], function ($routes) {
         $routes->get('/',                       'Coaches::index');
         $routes->get('create',                  'Coaches::create');
         $routes->post('store',                  'Coaches::store');
@@ -175,16 +175,14 @@ $routes->group('', ['filter' => 'auth'], function ($routes) {
     });
 
     // ── Users / Admin ─────────────────────────────────────────
-    $routes->group('admin', ['filter' => 'role:superadmin,admin'], function ($routes) {
-        $routes->get('users',              'Admin::users');
-        $routes->get('users/create',       'Admin::createUser');
-        $routes->post('users/store',       'Admin::storeUser');
-        $routes->get('users/edit/(:num)',  'Admin::editUser/$1');
+    $routes->group('admin', function ($routes) {
+        $routes->get('users',                'Admin::users');
+        $routes->get('users/create',         'Admin::createUser');
+        $routes->post('users/store',         'Admin::storeUser');
+        $routes->get('users/edit/(:num)',    'Admin::editUser/$1');
         $routes->post('users/update/(:num)', 'Admin::updateUser/$1');
         $routes->post('users/toggle/(:num)', 'Admin::toggleUser/$1');
-        $routes->get('audit-log',          'Admin::auditLog');
-        $routes->get('settings',           'Admin::settings');
-        $routes->post('settings/save',     'Admin::saveSettings');
+        $routes->get('audit-log',            'Admin::auditLog');
     });
 
     // ── Profile ───────────────────────────────────────────────

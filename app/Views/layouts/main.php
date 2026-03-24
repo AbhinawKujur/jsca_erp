@@ -344,7 +344,7 @@
   <?php if (in_array($currentUser['role_name'] ?? '', ['superadmin', 'admin'])): ?>
     <div class="nav-section">Administration</div>
     <a href="<?= base_url('admin/users') ?>" class="nav-link <?= str_starts_with(uri_string(), 'admin/users') ? 'active' : '' ?>">
-      <i class="bi bi-shield-check"></i> Users & Roles
+      <i class="bi bi-shield-check"></i> Users & Access
     </a>
     <a href="<?= base_url('admin/audit-log') ?>" class="nav-link <?= str_starts_with(uri_string(), 'admin/audit-log') ? 'active' : '' ?>">
       <i class="bi bi-journal-text"></i> Audit Log
