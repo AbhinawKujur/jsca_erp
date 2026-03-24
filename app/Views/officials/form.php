@@ -76,6 +76,19 @@ $old      = fn(string $k, $default = '') => old($k, $isEdit ? ($official[$k] ?? 
               <label class="form-label">Address</label>
               <textarea name="address" class="form-control" rows="2"><?= esc($old('address')) ?></textarea>
             </div>
+            <div class="col-md-4">
+              <label class="form-label">Grade</label>
+              <select name="grade" class="form-select">
+                <option value="">— None —</option>
+                <?php foreach (['A','B','C','D','Panel'] as $g): ?>
+                  <option value="<?= $g ?>" <?= $old('grade') === $g ? 'selected' : '' ?>><?= $g ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Fee Per Match (₹)</label>
+              <input type="number" name="fee_per_match" class="form-control" min="0" step="0.01" value="<?= esc($old('fee_per_match')) ?>">
+            </div>
             <?php if ($isEdit): ?>
               <div class="col-md-4">
                 <label class="form-label">Status</label>
@@ -85,6 +98,27 @@ $old      = fn(string $k, $default = '') => old($k, $isEdit ? ($official[$k] ?? 
                 </select>
               </div>
             <?php endif; ?>
+          </div>
+        </div>
+      </div>
+
+      <!-- Payment / Bank Details -->
+      <div class="card mb-4">
+        <div class="card-header">Bank Details <small class="text-muted fw-normal">(for payment vouchers)</small></div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Bank Name</label>
+              <input type="text" name="bank_name" class="form-control" value="<?= esc($old('bank_name')) ?>" placeholder="e.g. SBI">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Account Number</label>
+              <input type="text" name="bank_account" class="form-control" value="<?= esc($old('bank_account')) ?>" maxlength="20">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">IFSC Code</label>
+              <input type="text" name="bank_ifsc" class="form-control" value="<?= esc($old('bank_ifsc')) ?>" maxlength="11" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+            </div>
           </div>
         </div>
       </div>

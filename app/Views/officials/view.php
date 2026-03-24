@@ -73,6 +73,14 @@
             <div><?= $official['experience_years'] ? $official['experience_years'] . ' year(s)' : '—' ?></div>
           </div>
           <div class="col-md-6">
+            <div class="text-muted small">Grade</div>
+            <div><?= $official['grade'] ? esc($official['grade']) : '—' ?></div>
+          </div>
+          <div class="col-md-6">
+            <div class="text-muted small">Fee Per Match</div>
+            <div><?= $official['fee_per_match'] ? '₹' . number_format($official['fee_per_match'], 2) : '—' ?></div>
+          </div>
+          <div class="col-md-6">
             <div class="text-muted small">Email</div>
             <div><?= $official['email'] ? esc($official['email']) : '—' ?></div>
           </div>
@@ -95,6 +103,31 @@
             <div><?= date('d M Y', strtotime($official['created_at'])) ?></div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Bank Details -->
+    <div class="card mt-4">
+      <div class="card-header">Bank Details</div>
+      <div class="card-body">
+        <?php if (empty($official['bank_account'])): ?>
+          <p class="text-muted mb-0">No bank details on record.</p>
+        <?php else: ?>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <div class="text-muted small">Bank Name</div>
+              <div><?= esc($official['bank_name'] ?? '—') ?></div>
+            </div>
+            <div class="col-md-4">
+              <div class="text-muted small">Account Number</div>
+              <div><?= esc($official['bank_account']) ?></div>
+            </div>
+            <div class="col-md-4">
+              <div class="text-muted small">IFSC Code</div>
+              <div><?= esc($official['bank_ifsc'] ?? '—') ?></div>
+            </div>
+          </div>
+        <?php endif; ?>
       </div>
     </div>
 

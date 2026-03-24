@@ -91,6 +91,8 @@ class Officials extends BaseController
             'phone'            => 'permit_empty|regex_match[/^[6-9][0-9]{9}$/]',
             'dob'              => 'permit_empty|valid_date[Y-m-d]',
             'experience_years' => 'permit_empty|is_natural',
+            'fee_per_match'    => 'permit_empty|decimal',
+            'bank_ifsc'        => 'permit_empty|regex_match[/^[A-Z]{4}0[A-Z0-9]{6}$/]',
         ];
 
         if (!$this->validate($rules)) {
@@ -144,6 +146,11 @@ class Officials extends BaseController
             'district_id'      => $post['district_id'],
             'address'          => $post['address'] ?: null,
             'experience_years' => $post['experience_years'] ?: null,
+            'grade'            => $post['grade']         ?: null,
+            'fee_per_match'    => $post['fee_per_match']  ?: null,
+            'bank_name'        => $post['bank_name']      ?: null,
+            'bank_account'     => $post['bank_account']   ?: null,
+            'bank_ifsc'        => $post['bank_ifsc']      ?: null,
             'profile_photo'    => $photoPath,
             'user_id'          => $userId,
             'status'           => 'Active',
@@ -246,6 +253,8 @@ class Officials extends BaseController
             'phone'            => 'permit_empty|regex_match[/^[6-9][0-9]{9}$/]',
             'dob'              => 'permit_empty|valid_date[Y-m-d]',
             'experience_years' => 'permit_empty|is_natural',
+            'fee_per_match'    => 'permit_empty|decimal',
+            'bank_ifsc'        => 'permit_empty|regex_match[/^[A-Z]{4}0[A-Z0-9]{6}$/]',
         ];
 
         if (!$this->validate($rules)) {
@@ -263,6 +272,11 @@ class Officials extends BaseController
             'district_id'      => $post['district_id'],
             'address'          => $post['address'] ?: null,
             'experience_years' => $post['experience_years'] ?: null,
+            'grade'            => $post['grade']         ?: null,
+            'fee_per_match'    => $post['fee_per_match']  ?: null,
+            'bank_name'        => $post['bank_name']      ?: null,
+            'bank_account'     => $post['bank_account']   ?: null,
+            'bank_ifsc'        => $post['bank_ifsc']      ?: null,
             'status'           => $post['status'] ?? $old['status'],
             'updated_at'       => date('Y-m-d H:i:s'),
         ];
