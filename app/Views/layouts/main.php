@@ -269,11 +269,26 @@
     </div>
 
  <div class="pt-2">
+  <?php
+    $perms = $currentUser['permissions'] ?? [];
+    $hasAll = in_array('all', $perms);
+    function sidebarCan(array $perms, bool $hasAll, string ...$keys): bool {
+      if ($hasAll) return true;
+      foreach ($keys as $k) {
+        foreach ($perms as $p) {
+          if ($p === $k || str_starts_with($p, $k . '.')) return true;
+        }
+      }
+      return false;
+    }
+  ?>
+
   <div class="nav-section">Main</div>
   <a href="<?= base_url('dashboard') ?>" class="nav-link <?= uri_string() === 'dashboard' ? 'active' : '' ?>">
     <i class="bi bi-speedometer2"></i> Dashboard
   </a>
 
+  <?php if (sidebarCan($perms, $hasAll, 'players')): ?>
   <div class="nav-section">Players</div>
   <a href="<?= base_url('players') ?>" class="nav-link <?= str_starts_with(uri_string(), 'players') ? 'active' : '' ?>">
     <i class="bi bi-people"></i> Player Registry
@@ -298,12 +313,16 @@
   <a href="<?= base_url('coaches/create') ?>" class="nav-link <?= uri_string() === 'coaches/create' ? 'active' : '' ?>">
     <i class="bi bi-person-plus"></i> Register Coach
   </a>
+  <?php endif; ?>
 
+  <?php if (sidebarCan($perms, $hasAll, 'venues')): ?>
   <div class="nav-section">Venues</div>
   <a href="<?= base_url('venues') ?>" class="nav-link <?= str_starts_with(uri_string(), 'venues') ? 'active' : '' ?>">
     <i class="bi bi-building"></i> Venues
   </a>
+  <?php endif; ?>
 
+  <?php if (sidebarCan($perms, $hasAll, 'teams')): ?>
   <div class="nav-section">Teams</div>
   <a href="<?= base_url('teams') ?>" class="nav-link <?= str_starts_with(uri_string(), 'teams') ? 'active' : '' ?>">
     <i class="bi bi-shield-fill"></i> Team Registry
@@ -311,21 +330,29 @@
   <a href="<?= base_url('teams/create') ?>" class="nav-link <?= uri_string() === 'teams/create' ? 'active' : '' ?>">
     <i class="bi bi-plus-circle"></i> Create Team
   </a>
+  <?php endif; ?>
 
+  <?php if (sidebarCan($perms, $hasAll, 'tournaments', 'fixtures')): ?>
   <div class="nav-section">Tournaments</div>
+  <?php if (sidebarCan($perms, $hasAll, 'tournaments')): ?>
   <a href="<?= base_url('tournaments') ?>" class="nav-link <?= str_starts_with(uri_string(), 'tournaments') ? 'active' : '' ?>">
     <i class="bi bi-trophy"></i> Tournaments
   </a>
   <a href="<?= base_url('tournaments/create') ?>" class="nav-link <?= uri_string() === 'tournaments/create' ? 'active' : '' ?>">
     <i class="bi bi-plus-circle"></i> Create Tournament
   </a>
+  <?php endif; ?>
+  <?php if (sidebarCan($perms, $hasAll, 'fixtures')): ?>
   <a href="<?= base_url('fixtures') ?>" class="nav-link <?= str_starts_with(uri_string(), 'fixtures') ? 'active' : '' ?>">
     <i class="bi bi-calendar3"></i> Fixtures
   </a>
   <a href="<?= base_url('matches/live') ?>" class="nav-link <?= str_starts_with(uri_string(), 'matches/live') ? 'active' : '' ?>">
     <i class="bi bi-lightning-charge text-warning"></i> Live Matches
   </a>
+  <?php endif; ?>
+  <?php endif; ?>
 
+  <?php if (sidebarCan($perms, $hasAll, 'officials')): ?>
   <div class="nav-section">Officials</div>
   <a href="<?= base_url('officials') ?>" class="nav-link <?= str_starts_with(uri_string(), 'officials') ? 'active' : '' ?>">
     <i class="bi bi-patch-check"></i> Officials
@@ -333,7 +360,9 @@
   <a href="<?= base_url('officials/create') ?>" class="nav-link <?= uri_string() === 'officials/create' ? 'active' : '' ?>">
     <i class="bi bi-person-plus"></i> Add Official
   </a>
+  <?php endif; ?>
 
+  <?php if (sidebarCan($perms, $hasAll, 'finance')): ?>
   <div class="nav-section">Finance</div>
   <a href="<?= base_url('finance') ?>" class="nav-link <?= str_starts_with(uri_string(), 'finance') ? 'active' : '' ?>">
     <i class="bi bi-currency-rupee"></i> Finance Dashboard
@@ -349,14 +378,21 @@
         <span class="badge bg-danger ms-auto"><?= $pendingCount ?></span>
     <?php endif; ?>
   </a>
+  <?php endif; ?>
 
+  <?php if (sidebarCan($perms, $hasAll, 'analytics', 'reports')): ?>
   <div class="nav-section">Intelligence</div>
+  <?php if (sidebarCan($perms, $hasAll, 'analytics')): ?>
   <a href="<?= base_url('analytics') ?>" class="nav-link <?= str_starts_with(uri_string(), 'analytics') ? 'active' : '' ?>">
     <i class="bi bi-bar-chart-line"></i> Analytics
   </a>
+  <?php endif; ?>
+  <?php if (sidebarCan($perms, $hasAll, 'reports')): ?>
   <a href="<?= base_url('reports') ?>" class="nav-link <?= str_starts_with(uri_string(), 'reports') ? 'active' : '' ?>">
     <i class="bi bi-file-earmark-text"></i> Reports
   </a>
+  <?php endif; ?>
+  <?php endif; ?>
 
   <?php if (in_array($currentUser['role_name'] ?? '', ['superadmin', 'admin'])): ?>
     <div class="nav-section">Administration</div>

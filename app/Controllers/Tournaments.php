@@ -302,11 +302,19 @@ class Tournaments extends BaseController
             return redirect()->back()->with('error', 'Invalid status transition from "' . $current . '" to "' . $newStatus . '".');
         }
 
-        // Moving to Fixture Ready requires at least 2 teams
+        // Moving to Fixture Ready: check confirmed teams
         if ($newStatus === 'Fixture Ready') {
-            $teamCount = $this->db->table('teams')->where('tournament_id', $id)->countAllResults();
-            if ($teamCount < 2) {
-                return redirect()->back()->with('error', 'At least 2 teams must be registered before marking fixtures as ready.');
+            $confirmedCount = $this->db->table('teams')
+                ->where('tournament_id', $id)
+                ->where('status', 'Confirmed')
+                ->countAllResults();
+
+            if ($confirmedCount < 2) {
+                return redirect()->back()->with('error', 'At least 2 confirmed teams are required before marking fixtures as ready. Confirm teams first.');
+            }
+
+            if (!empty($tournament['max_teams']) && $confirmedCount > $tournament['max_teams']) {
+                return redirect()->back()->with('error', 'Confirmed teams (' . $confirmedCount . ') exceed max_teams (' . $tournament['max_teams'] . '). Withdraw some teams first.');
             }
         }
 
@@ -350,6 +358,11 @@ class Tournaments extends BaseController
 
         if (!in_array($tournament['status'], ['Draft', 'Registration'])) {
             return redirect()->back()->with('error', 'Teams can only be added during Draft or Registration phase.');
+        }
+
+        // Check deadline
+        if (!empty($tournament['registration_deadline']) && $tournament['registration_deadline'] < date('Y-m-d')) {
+            return redirect()->back()->with('error', 'Registration deadline has passed for this tournament.');
         }
 
         $teamId = (int)$this->request->getPost('team_id');

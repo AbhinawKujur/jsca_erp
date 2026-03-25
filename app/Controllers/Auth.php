@@ -66,10 +66,11 @@ class Auth extends BaseController
                 ->select('district_id')
                 ->where('user_id', $user['id'])
                 ->get()->getResultArray();
-            $districtIds = array_column($rows, 'district_id');
+            $districtIds = array_map('intval', array_column($rows, 'district_id'));
         }
 
-        // Store session
+        // Regenerate session ID to avoid fixation, then set data
+        session()->regenerate(true);
         session()->set([
             'user_id'              => $user['id'],
             'user_name'            => $user['full_name'],

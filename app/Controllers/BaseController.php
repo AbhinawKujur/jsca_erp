@@ -30,13 +30,16 @@ abstract class BaseController extends Controller
         // Load current user into every controller
         if ($this->session->get('user_id')) {
             $this->currentUser = $this->db->table('users u')
-                ->select('u.*, r.name as role_name, r.permissions')
+                ->select('u.*, r.name as role_name, r.permissions, u.custom_permissions')
                 ->join('roles r', 'r.id = u.role_id')
                 ->where('u.id', $this->session->get('user_id'))
                 ->get()->getRowArray();
 
             if ($this->currentUser) {
-                $this->currentUser['permissions'] = json_decode($this->currentUser['permissions'], true);
+                $rolePerms   = json_decode($this->currentUser['permissions'] ?? '[]', true) ?? [];
+                $customPerms = json_decode($this->currentUser['custom_permissions'] ?? '[]', true) ?? [];
+                // Merge: role defaults + any extra custom permissions
+                $this->currentUser['permissions'] = array_values(array_unique(array_merge($rolePerms, $customPerms)));
             }
         }
     }
@@ -84,18 +87,18 @@ abstract class BaseController extends Controller
             $rows = $this->db->table('districts')
                 ->select('id')->where('is_active', 1)
                 ->get()->getResultArray();
-            return array_column($rows, 'id');
+            return array_map('intval', array_column($rows, 'id'));
         }
 
         $cached = $this->session->get('allowed_district_ids');
-        if ($cached !== null) return $cached;
+        if ($cached !== null) return array_map('intval', $cached);
 
         $rows = $this->db->table('user_districts')
             ->select('district_id')
             ->where('user_id', $this->currentUser['id'])
             ->get()->getResultArray();
 
-        $ids = array_column($rows, 'district_id');
+        $ids = array_map('intval', array_column($rows, 'district_id'));
         $this->session->set('allowed_district_ids', $ids);
         return $ids;
     }
@@ -125,7 +128,13 @@ abstract class BaseController extends Controller
     {
         if (!$this->currentUser) return false;
         $perms = $this->currentUser['permissions'] ?? [];
-        return in_array('all', $perms) || in_array($permission, $perms);
+        if (in_array('all', $perms) || in_array($permission, $perms)) return true;
+        // parent permission covers sub-permissions: 'players' satisfies 'players.create'
+        if (str_contains($permission, '.')) {
+            $parent = explode('.', $permission)[0];
+            if (in_array($parent, $perms)) return true;
+        }
+        return false;
     }
 
     protected function requirePermission(string $permission): void

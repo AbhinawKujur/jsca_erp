@@ -56,10 +56,23 @@ class Teams extends BaseController
 
         $districtIds = $this->getAllowedDistrictIdsFlat();
 
-        // Only show tournaments open for registration
-        $tournaments = $this->db->table('tournaments')
-            ->whereIn('status', ['Draft', 'Registration'])
-            ->orderBy('name')->get()->getResultArray();
+        // Only show tournaments in Registration status + deadline not passed
+        $today       = date('Y-m-d');
+        $tournaments = $this->db->table('tournaments t')
+            ->select('t.id, t.name, t.age_category, t.status, t.max_teams, t.registration_deadline,
+                (SELECT COUNT(*) FROM teams tm WHERE tm.tournament_id=t.id AND tm.status="Confirmed") as confirmed_count')
+            ->where('t.status', 'Registration')
+            ->groupStart()
+                ->where('t.registration_deadline IS NULL')
+                ->orWhere('t.registration_deadline >=', $today)
+            ->groupEnd()
+            ->orderBy('t.name')->get()->getResultArray();
+
+        // Filter out tournaments that have hit max confirmed teams
+        $tournaments = array_filter($tournaments, function($tr) {
+            return empty($tr['max_teams']) || $tr['confirmed_count'] < $tr['max_teams'];
+        });
+        $tournaments = array_values($tournaments);
 
         $districts = $this->db->table('districts')
             ->whereIn('id', $districtIds ?: [0])
@@ -98,10 +111,26 @@ class Teams extends BaseController
             return redirect()->back()->with('error', 'You do not have access to the selected district.')->withInput();
         }
 
-        // Verify tournament is still open
+        // Verify tournament is open for registration
         $tournament = $this->db->table('tournaments')->where('id', $post['tournament_id'])->get()->getRowArray();
-        if (!$tournament || !in_array($tournament['status'], ['Draft', 'Registration'])) {
-            return redirect()->back()->with('error', 'The selected tournament is not open for registration.')->withInput();
+        if (!$tournament || $tournament['status'] !== 'Registration') {
+            return redirect()->back()->with('error', 'This tournament is not open for registration.')->withInput();
+        }
+
+        // Check registration deadline
+        if (!empty($tournament['registration_deadline']) && $tournament['registration_deadline'] < date('Y-m-d')) {
+            return redirect()->back()->with('error', 'Registration deadline for this tournament has passed.')->withInput();
+        }
+
+        // Hard block when confirmed teams hit max_teams
+        if (!empty($tournament['max_teams'])) {
+            $confirmed = $this->db->table('teams')
+                ->where('tournament_id', $post['tournament_id'])
+                ->where('status', 'Confirmed')
+                ->countAllResults();
+            if ($confirmed >= $tournament['max_teams']) {
+                return redirect()->back()->with('error', 'This tournament is full. Maximum confirmed teams (' . $tournament['max_teams'] . ') already reached.')->withInput();
+            }
         }
 
         $data = [
@@ -165,21 +194,19 @@ class Teams extends BaseController
             ->orderBy('created_at', 'DESC')
             ->get()->getResultArray();
 
-        // Available players: match tournament age_category, not already in this team
-        $availablePlayers = $this->db->table('players p')
+        // Available players: match tournament age_category + same district + not already in team
+        $availableQuery = $this->db->table('players p')
             ->select('p.id, p.full_name, p.jsca_player_id, p.role, p.age_category')
             ->where('p.status', 'Active')
             ->where('p.district_id', $team['district_id'])
             ->whereNotIn('p.id', array_column($players, 'player_id') ?: [0])
-            ->orderBy('p.full_name')
-            ->get()->getResultArray();
+            ->orderBy('p.full_name');
 
         if (!empty($team['age_category'])) {
-            $availablePlayers = array_filter(
-                $availablePlayers,
-                fn($p) => $p['age_category'] === $team['age_category']
-            );
+            $availableQuery->where('p.age_category', $team['age_category']);
         }
+
+        $availablePlayers = $availableQuery->get()->getResultArray();
 
         $availableCoaches = $this->db->table('coaches')
             ->where('status', 'Active')
@@ -195,7 +222,7 @@ class Teams extends BaseController
             'players'          => $players,
             'coaches'          => $coaches,
             'documents'        => $documents,
-            'availablePlayers' => array_values($availablePlayers),
+            'availablePlayers' => $availablePlayers,
             'availableCoaches' => $availableCoaches,
             'canManage'        => $canManage,
         ]);

@@ -12,7 +12,7 @@ class Dashboard extends BaseController
             // Counts
             'totalPlayers'      => $this->db->table('players')->where('status', 'Active')->countAllResults(),
             'verifiedPlayers'   => $this->db->table('players')->where('aadhaar_verified', 1)->countAllResults(),
-            'totalOfficials'    => $this->db->table('officials')->where('is_active', 1)->countAllResults(),
+            'totalOfficials'    => $this->db->table('officials')->where('status', 'Active')->countAllResults(),
             'totalTournaments'  => $this->db->table('tournaments')->countAllResults(),
             'activeTournaments' => $this->db->table('tournaments')->whereIn('status', ['Ongoing', 'Fixture Ready'])->countAllResults(),
             'totalMatches'      => $this->db->table('fixtures')->countAllResults(),
