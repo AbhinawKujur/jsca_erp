@@ -175,8 +175,12 @@ $routes->group('', ['filter' => 'auth'], function ($routes) {
         $routes->get('ledger/edit/(:num)', 'Finance::editLedger/$1');
         $routes->post('ledger/update/(:num)', 'Finance::updateLedger/$1');
         $routes->get('ledger/delete/(:num)', 'Finance::deleteLedger/$1');
-    });
 
+        // Bank Master
+        $routes->get('bank-master', 'BankController::index');
+        $routes->post('bank-master/save', 'BankController::save');
+        $routes->get('bank-master/delete/(:num)', 'BankController::delete/$1');
+    });
     // ── Analytics ─────────────────────────────────────────────
     $routes->group('analytics', function ($routes) {
         $routes->get('/',                    'Analytics::index');

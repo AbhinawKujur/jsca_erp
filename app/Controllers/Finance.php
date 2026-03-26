@@ -33,11 +33,17 @@ class Finance extends BaseController
             ->groupBy('payee_type')
             ->get()->getResultArray();
 
+        $bankAccounts = $this->db->table('bank_acc_master')
+            ->select('id, bank_name, acc_no, opening_bal, acc_type, updated_at')
+            ->get()
+            ->getResultArray();
+
         return $this->render('finance/index', [
             'pageTitle'    => 'Finance — JSCA ERP',
             'summary'      => $summary,
             'monthlyTrend' => $monthlyTrend,
             'byPayeeType'  => $byPayeeType,
+            'bankAccounts' => $bankAccounts,
         ]);
     }
 
@@ -82,8 +88,8 @@ class Finance extends BaseController
 
         return $this->render('finance/voucher_form', [
             'pageTitle'   => 'Create Voucher — JSCA ERP',
-            'voucher'     => null,
-            'officials'   => $this->db->table('officials')->where('is_active', 1)->orderBy('full_name')->get()->getResultArray(),
+            'voucher'     => $this->generateVoucherNumber(),
+            'officials'   => $this->db->table('officials')->where('status', 1)->orderBy('full_name')->get()->getResultArray(),
             'tournaments' => $this->db->table('tournaments')->orderBy('name')->get()->getResultArray(),
             'fixtures'    => $this->db->table('fixtures f')
                 ->select('f.id, f.match_number, f.match_date, ta.name as team_a, tb.name as team_b')
@@ -93,6 +99,8 @@ class Finance extends BaseController
                 ->orderBy('f.match_date', 'DESC')
                 ->limit(100)
                 ->get()->getResultArray(),
+            'ledger_heads' => $this->db->table('ledger_heads')->select('id,group_id,name,opening_balance,balance_type')->get()->getresultArray(),
+            'bank_acc' => $this->db->table('bank_acc_master')->select('*')->get()->getresultArray()
         ]);
     }
 

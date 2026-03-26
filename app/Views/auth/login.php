@@ -8,7 +8,12 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body {
-      background: linear-gradient(135deg, #1a3a5c 0%, #0d2137 100%);
+      /* Added background image with a dark overlay for readability */
+      background: linear-gradient(rgba(26, 58, 92, 0.5), rgba(13, 33, 55, 0.5)),
+        url('https://images.unsplash.com/photo-1531415074968-036ba1b575da?auto=format&fit=crop&q=80&w=2000');
+      background-size: cover;
+      background-position: center;
+      background-attachment: fixed;
       min-height: 100vh;
       display: flex;
       align-items: center;
@@ -17,9 +22,11 @@
     .login-card {
       border-radius: 16px;
       overflow: hidden;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+      /* Deepened shadow for contrast */
       max-width: 420px;
       width: 100%;
+      border: none;
     }
 
     .login-header {
@@ -53,11 +60,13 @@
       width: 100%;
       font-size: 15px;
       border: none;
+      transition: all 0.3s ease;
     }
 
     .btn-login:hover {
       background: #16324e;
-      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 
     .form-label {
