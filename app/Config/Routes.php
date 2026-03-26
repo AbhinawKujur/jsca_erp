@@ -109,19 +109,15 @@ $routes->group('', ['filter' => 'auth'], function ($routes) {
     });
 
     // ── Fixtures ──────────────────────────────────────────────
-    $routes->group('fixtures', function ($routes) {
+    $routes->group('fixtures', ['filter' => 'rbac:fixtures,tournaments'], function ($routes) {
         $routes->get('/',                        'Fixtures::index');
-        $routes->get('tournament/(:num)',        'Fixtures::tournament/$1');
-        $routes->get('generate/(:num)',          'Fixtures::generateForm/$1');
-        $routes->post('auto-generate/(:num)',    'Fixtures::autoGenerate/$1');
-        $routes->get('upload/(:num)',            'Fixtures::uploadForm/$1');
-        $routes->post('upload-process/(:num)',   'Fixtures::uploadProcess/$1');
-        $routes->get('download-template',        'Fixtures::downloadTemplate');
+        $routes->get('create',                   'Fixtures::create');
+        $routes->post('store',                   'Fixtures::store');
         $routes->get('view/(:num)',              'Fixtures::view/$1');
         $routes->get('edit/(:num)',              'Fixtures::edit/$1');
         $routes->post('update/(:num)',           'Fixtures::update/$1');
         $routes->post('delete/(:num)',           'Fixtures::delete/$1');
-        $routes->get('export/(:num)',            'Fixtures::export/$1');
+        $routes->get('tournament/(:num)',        'Fixtures::tournament/$1');
     });
 
     // ── Matches / Scoring ─────────────────────────────────────

@@ -2,474 +2,403 @@
 // app/Controllers/Fixtures.php
 namespace App\Controllers;
 
-use App\Libraries\FixtureEngine;
-
 class Fixtures extends BaseController
 {
     // ── GET /fixtures ─────────────────────────────────────────
     public function index()
     {
-        $fixtures = $this->db->table('fixtures f')
-            ->select('f.*, t.name as tournament_name, ta.name as team_a_name, tb.name as team_b_name, v.name as venue_name, v.has_floodlights')
+        $tournamentId = $this->request->getGet('tournament_id');
+        $status       = $this->request->getGet('status');
+        $date         = $this->request->getGet('date');
+
+        $builder = $this->db->table('fixtures f')
+            ->select('f.*, t.name as tournament_name, t.age_category, t.overs as tournament_overs,
+                      ta.name as team_a_name, tb.name as team_b_name,
+                      v.name as venue_name,
+                      u1.full_name as umpire1_name, u2.full_name as umpire2_name')
             ->join('tournaments t',  't.id = f.tournament_id')
             ->join('teams ta',       'ta.id = f.team_a_id')
             ->join('teams tb',       'tb.id = f.team_b_id')
-            ->join('venues v',       'v.id = f.venue_id')
-            ->orderBy('f.match_date', 'ASC')
-            ->orderBy('f.match_time', 'ASC')
-            ->get()->getResultArray();
+            ->join('venues v',       'v.id = f.venue_id', 'left')
+            ->join('officials u1',   'u1.id = f.umpire1_id', 'left')
+            ->join('officials u2',   'u2.id = f.umpire2_id', 'left')
+            ->orderBy('f.match_date', 'DESC')
+            ->orderBy('f.match_time', 'ASC');
+
+        if ($tournamentId) $builder->where('f.tournament_id', $tournamentId);
+        if ($status)       $builder->where('f.status', $status);
+        if ($date)         $builder->where('f.match_date', $date);
+
+        $fixtures     = $builder->get()->getResultArray();
+        $tournaments  = $this->db->table('tournaments')
+            ->whereIn('status', ['Fixture Ready', 'Ongoing', 'Completed'])
+            ->orderBy('name')->get()->getResultArray();
 
         return $this->render('fixtures/index', [
-            'pageTitle' => 'Fixtures — JSCA ERP',
-            'fixtures'  => $fixtures,
-            'tournaments' => $this->db->table('tournaments')->orderBy('name')->get()->getResultArray(),
+            'pageTitle'    => 'Fixtures — JSCA ERP',
+            'fixtures'     => $fixtures,
+            'tournaments'  => $tournaments,
+            'tournamentId' => $tournamentId,
+            'status'       => $status,
+            'date'         => $date,
+            'canManage'    => $this->can('fixtures'),
         ]);
     }
 
-    // ── GET /fixtures/tournament/:id ─────────────────────────
-    public function tournament(int $tournamentId)
-    {
-        $tournament = $this->db->table('tournaments')->where('id', $tournamentId)->get()->getRowArray();
-        if (!$tournament) return redirect()->to('/fixtures')->with('error', 'Tournament not found.');
-
-        $fixtures = $this->db->table('fixtures f')
-            ->select('f.*, ta.name as team_a_name, tb.name as team_b_name, v.name as venue_name,
-                      v.has_floodlights, o1.full_name as umpire1_name, o2.full_name as umpire2_name,
-                      sc.full_name as scorer_name, rf.full_name as referee_name, ms.team_a_score, ms.team_b_score')
-            ->join('teams ta',    'ta.id = f.team_a_id')
-            ->join('teams tb',    'tb.id = f.team_b_id')
-            ->join('venues v',    'v.id = f.venue_id')
-            ->join('officials o1','o1.id = f.umpire1_id', 'left')
-            ->join('officials o2','o2.id = f.umpire2_id', 'left')
-            ->join('officials sc','sc.id = f.scorer_id',  'left')
-            ->join('officials rf','rf.id = f.referee_id', 'left')
-            ->join('match_scorecards ms', 'ms.fixture_id = f.id', 'left')
-            ->where('f.tournament_id', $tournamentId)
-            ->orderBy('f.match_date', 'ASC')
-            ->orderBy('f.match_time', 'ASC')
-            ->get()->getResultArray();
-
-        return $this->render('fixtures/tournament', [
-            'pageTitle'  => $tournament['name'] . ' — Fixtures',
-            'tournament' => $tournament,
-            'fixtures'   => $fixtures,
-        ]);
-    }
-
-    // ── GET /fixtures/generate/:tournamentId ─────────────────
-    public function generateForm(int $tournamentId)
+    // ── GET /fixtures/create?tournament_id=X ─────────────────
+    public function create()
     {
         $this->requirePermission('fixtures');
 
-        $tournament = $this->db->table('tournaments')->where('id', $tournamentId)->get()->getRowArray();
-        if (!$tournament) return redirect()->to('/fixtures')->with('error', 'Tournament not found.');
+        $tournamentId = $this->request->getGet('tournament_id');
 
-        $teams   = $this->db->table('teams')->where('tournament_id', $tournamentId)->get()->getResultArray();
-        $venues  = $this->db->table('venues v')
-            ->select('v.*, d.name as district_name')
-            ->join('districts d', 'd.id = v.district_id')
-            ->where('v.is_active', 1)
-            ->orderBy('v.has_floodlights', 'DESC')
-            ->get()->getResultArray();
-        $officials = $this->db->table('officials')->where('is_active', 1)->orderBy('role')->orderBy('full_name')->get()->getResultArray();
-        $districts = $this->db->table('districts')->orderBy('zone')->orderBy('name')->get()->getResultArray();
+        $tournaments = $this->db->table('tournaments')
+            ->whereIn('status', ['Fixture Ready', 'Ongoing'])
+            ->orderBy('name')->get()->getResultArray();
 
-        return $this->render('fixtures/generate', [
-            'pageTitle'  => 'Generate Fixture — ' . $tournament['name'],
-            'tournament' => $tournament,
-            'teams'      => $teams,
-            'venues'     => $venues,
-            'officials'  => $officials,
-            'districts'  => $districts,
+        // Pre-load teams if tournament selected
+        $teams = [];
+        $tournament = null;
+        if ($tournamentId) {
+            $tournament = $this->db->table('tournaments')->where('id', $tournamentId)->get()->getRowArray();
+            $teams = $this->db->table('teams')
+                ->where('tournament_id', $tournamentId)
+                ->where('status', 'Confirmed')
+                ->orderBy('name')->get()->getResultArray();
+        }
+
+        $venues    = $this->_getVenuesForTournament($tournamentId);
+        $umpires   = $this->_getOfficialsByType(['Umpire'], $tournamentId);
+        $scorers   = $this->_getOfficialsByType(['Scorer'], $tournamentId);
+        $referees  = $this->_getOfficialsByType(['Referee', 'Match Referee'], $tournamentId);
+
+        return $this->render('fixtures/form', [
+            'pageTitle'    => 'Create Fixture — JSCA ERP',
+            'fixture'      => null,
+            'tournaments'  => $tournaments,
+            'tournament'   => $tournament,
+            'teams'        => $teams,
+            'venues'       => $venues,
+            'umpires'      => $umpires,
+            'scorers'      => $scorers,
+            'referees'     => $referees,
+            'tournamentId' => $tournamentId,
         ]);
     }
 
-    // ── POST /fixtures/auto-generate/:tournamentId ───────────
-    public function autoGenerate(int $tournamentId)
+    // ── POST /fixtures/store ──────────────────────────────────
+    public function store()
     {
         $this->requirePermission('fixtures');
 
-        $tournament = $this->db->table('tournaments')->where('id', $tournamentId)->get()->getRowArray();
-        if (!$tournament) {
-            return $this->response->setJSON(['success' => false, 'message' => 'Tournament not found.']);
+        $rules = [
+            'tournament_id' => 'required|is_natural_no_zero',
+            'team_a_id'     => 'required|is_natural_no_zero',
+            'team_b_id'     => 'required|is_natural_no_zero',
+            'match_date'    => 'required|valid_date[Y-m-d]',
+            'match_time'    => 'required',
+            'venue_id'      => 'required|is_natural_no_zero',
+        ];
+
+        if (!$this->validate($rules)) {
+            return redirect()->back()->with('errors', $this->validator->getErrors())->withInput();
         }
 
         $post = $this->request->getPost();
 
-        // Validate required inputs
-        $venueIds    = $post['venue_ids']    ?? [];
-        $teamIds     = $post['team_ids']     ?? [];
-        $startDate   = $post['start_date']   ?? date('Y-m-d');
-        $endDate     = $post['end_date']     ?? date('Y-m-d', strtotime('+60 days'));
-        $matchesPerDay  = (int)($post['matches_per_day']    ?? 3);
-        $startTime      = $post['start_time'] ?? '09:00:00';
-        $matchDuration  = (int)($post['match_duration_hrs'] ?? 4); // hours
-        $nightMatches   = (bool)($post['allow_night'] ?? false);
-        $travelMode     = $post['travel_constraint'] ?? 'None';
-        $officialMode   = $post['official_mode']     ?? 'auto';
-        $umpirePerMatch = (int)($post['umpires_per_match'] ?? 2);
-
-        if (empty($teamIds) || count($teamIds) < 2) {
-            return $this->response->setJSON(['success' => false, 'message' => 'At least 2 teams required.']);
-        }
-        if (empty($venueIds)) {
-            return $this->response->setJSON(['success' => false, 'message' => 'At least 1 venue required.']);
+        if ($post['team_a_id'] === $post['team_b_id']) {
+            return redirect()->back()->with('error', 'Team A and Team B cannot be the same.')->withInput();
         }
 
-        // Load teams with district info
-        $teams = $this->db->table('teams t')
-            ->select('t.*, d.lat, d.lng, d.zone')
-            ->join('districts d', 'd.id = t.district_id')
-            ->whereIn('t.id', $teamIds)
-            ->get()->getResultArray();
-
-        // Load venues
-        $venues = $this->db->table('venues')
-            ->whereIn('id', $venueIds)
-            ->get()->getResultArray();
-
-        // Load available officials
-        $umpires  = $this->db->table('officials')->where('role', 'Umpire')->where('is_active', 1)->get()->getResultArray();
-        $scorers  = $this->db->table('officials')->where('role', 'Scorer')->where('is_active', 1)->get()->getResultArray();
-        $referees = $this->db->table('officials')->where('role', 'Match Referee')->where('is_active', 1)->get()->getResultArray();
-
-        // ── Generate using FixtureEngine ──────────────────────
-        $engine   = new FixtureEngine();
-        $fixtures = $engine->generate([
-            'tournament'       => $tournament,
-            'teams'            => $teams,
-            'venues'           => $venues,
-            'umpires'          => $umpires,
-            'scorers'          => $scorers,
-            'referees'         => $referees,
-            'start_date'       => $startDate,
-            'end_date'         => $endDate,
-            'matches_per_day'  => $matchesPerDay,
-            'start_time'       => $startTime,
-            'match_duration'   => $matchDuration,
-            'allow_night'      => $nightMatches,
-            'travel_constraint'=> $travelMode,
-            'official_mode'    => $officialMode,
-            'umpires_per_match'=> $umpirePerMatch,
-            'zonal_config'     => $post['zones'] ?? [],
-        ]);
-
-        if (!$fixtures['success']) {
-            return $this->response->setJSON($fixtures);
+        // Check tournament is in valid state
+        $tournament = $this->db->table('tournaments')->where('id', $post['tournament_id'])->get()->getRowArray();
+        if (!$tournament || !in_array($tournament['status'], ['Fixture Ready', 'Ongoing'])) {
+            return redirect()->back()->with('error', 'Tournament must be in Fixture Ready or Ongoing status.')->withInput();
         }
 
-        // ── Persist to database ───────────────────────────────
-        $this->db->transStart();
+        // Auto match number
+        $matchCount = $this->db->table('fixtures')->where('tournament_id', $post['tournament_id'])->countAllResults();
+        $matchNumber = 'M' . str_pad($matchCount + 1, 2, '0', STR_PAD_LEFT);
 
-        // Clear existing scheduled fixtures for this tournament
-        $this->db->table('fixtures')
-            ->where('tournament_id', $tournamentId)
-            ->where('status', 'Scheduled')
-            ->delete();
+        $data = [
+            'tournament_id' => $post['tournament_id'],
+            'match_number'  => $post['match_number'] ?: $matchNumber,
+            'stage'         => $post['stage'] ?: 'League',
+            'match_date'    => $post['match_date'],
+            'match_time'    => $post['match_time'],
+            'team_a_id'     => $post['team_a_id'],
+            'team_b_id'     => $post['team_b_id'],
+            'venue_id'      => $post['venue_id'],
+            'is_day_night'  => isset($post['is_day_night']) ? 1 : 0,
+            'umpire1_id'    => $post['umpire1_id']  ?: null,
+            'umpire2_id'    => $post['umpire2_id']  ?: null,
+            'scorer_id'     => $post['scorer_id']   ?: null,
+            'referee_id'    => $post['referee_id']  ?: null,
+            'youtube_url'   => $post['youtube_url'] ?: null,
+            'status'        => 'Scheduled',
+            'created_by'    => session('user_id'),
+            'created_at'    => date('Y-m-d H:i:s'),
+        ];
 
-        foreach ($fixtures['matches'] as $match) {
-            $this->db->table('fixtures')->insert([
-                'tournament_id' => $tournamentId,
-                'match_number'  => $match['match_number'],
-                'stage'         => $match['stage'],
-                'zone'          => $match['zone'] ?? null,
-                'match_date'    => $match['date'],
-                'match_time'    => $match['time'],
-                'team_a_id'     => $match['team_a_id'],
-                'team_b_id'     => $match['team_b_id'],
-                'venue_id'      => $match['venue_id'],
-                'is_day_night'  => $match['is_night'] ? 1 : 0,
-                'umpire1_id'    => $match['umpire1_id'] ?? null,
-                'umpire2_id'    => $match['umpire2_id'] ?? null,
-                'scorer_id'     => $match['scorer_id'] ?? null,
-                'referee_id'    => $match['referee_id'] ?? null,
-                'status'        => 'Scheduled',
-                'created_by'    => session('user_id'),
-                'created_at'    => date('Y-m-d H:i:s'),
-            ]);
-        }
+        $this->db->table('fixtures')->insert($data);
+        $id = $this->db->insertID();
+        $this->audit('CREATE', 'fixtures', $id, null, $data);
 
-        // Update tournament status
-        $this->db->table('tournaments')->where('id', $tournamentId)->update([
-            'total_matches' => count($fixtures['matches']),
-            'status'        => 'Fixture Ready',
-            'updated_at'    => date('Y-m-d H:i:s'),
-        ]);
-
-        $this->db->transComplete();
-
-        if (!$this->db->transStatus()) {
-            return $this->response->setJSON(['success' => false, 'message' => 'Database error while saving fixture.']);
-        }
-
-        $this->audit('FIXTURE_GENERATED', 'fixtures', $tournamentId, null, ['total_matches' => count($fixtures['matches'])]);
-
-        return $this->response->setJSON([
-            'success'  => true,
-            'message'  => count($fixtures['matches']) . ' matches generated successfully!',
-            'matches'  => $fixtures['matches'],
-            'summary'  => $fixtures['summary'],
-            'redirect' => '/fixtures/tournament/' . $tournamentId,
-        ]);
+        return redirect()->to('fixtures/view/' . $id)
+            ->with('success', 'Fixture ' . $data['match_number'] . ' created successfully.');
     }
 
-    // ── GET /fixtures/upload/:tournamentId ───────────────────
-    public function uploadForm(int $tournamentId)
-    {
-        $this->requirePermission('fixtures');
-
-        $tournament = $this->db->table('tournaments')->where('id', $tournamentId)->get()->getRowArray();
-        if (!$tournament) return redirect()->to('/fixtures')->with('error', 'Tournament not found.');
-
-        return $this->render('fixtures/upload', [
-            'pageTitle'  => 'Upload Fixture — ' . $tournament['name'],
-            'tournament' => $tournament,
-        ]);
-    }
-
-    // ── POST /fixtures/upload-process/:tournamentId ──────────
-    public function uploadProcess(int $tournamentId)
-    {
-        $this->requirePermission('fixtures');
-
-        $file = $this->request->getFile('fixture_file');
-
-        if (!$file || !$file->isValid()) {
-            return redirect()->back()->with('error', 'No file uploaded or file is invalid.');
-        }
-
-        $ext = strtolower($file->getExtension());
-        if (!in_array($ext, ['csv', 'xlsx', 'xls'])) {
-            return redirect()->back()->with('error', 'Only CSV or Excel files are accepted.');
-        }
-
-        // Move file to writable
-        $fileName = 'fixture_upload_' . $tournamentId . '_' . time() . '.' . $ext;
-        $file->move(WRITEPATH . 'uploads/fixtures', $fileName);
-        $filePath = WRITEPATH . 'uploads/fixtures/' . $fileName;
-
-        // Parse the file
-        $rows = ($ext === 'csv')
-            ? $this->parseCSV($filePath)
-            : $this->parseExcel($filePath);
-
-        if (empty($rows)) {
-            return redirect()->back()->with('error', 'File is empty or could not be parsed.');
-        }
-
-        $errors   = [];
-        $inserted = 0;
-
-        $this->db->transStart();
-
-        // Clear existing scheduled fixtures
-        $this->db->table('fixtures')
-            ->where('tournament_id', $tournamentId)
-            ->where('status', 'Scheduled')
-            ->delete();
-
-        foreach ($rows as $i => $row) {
-            $line = $i + 2;
-
-            // Required field checks
-            if (empty($row['match_date']) || empty($row['team_a']) || empty($row['team_b'])) {
-                $errors[] = "Row {$line}: Match date, Team A and Team B are required.";
-                continue;
-            }
-
-            // Resolve team names to IDs
-            $teamA = $this->db->table('teams')
-                ->where('tournament_id', $tournamentId)
-                ->like('name', $row['team_a'])
-                ->get()->getRowArray();
-            $teamB = $this->db->table('teams')
-                ->where('tournament_id', $tournamentId)
-                ->like('name', $row['team_b'])
-                ->get()->getRowArray();
-
-            if (!$teamA) { $errors[] = "Row {$line}: Team A '{$row['team_a']}' not found in this tournament."; continue; }
-            if (!$teamB) { $errors[] = "Row {$line}: Team B '{$row['team_b']}' not found in this tournament."; continue; }
-
-            // Resolve venue
-            $venue = null;
-            if (!empty($row['venue'])) {
-                $venue = $this->db->table('venues')->like('name', $row['venue'])->get()->getRowArray();
-            }
-
-            // Resolve officials
-            $umpire1  = $this->resolveOfficial($row['umpire_1'] ?? null, 'Umpire');
-            $umpire2  = $this->resolveOfficial($row['umpire_2'] ?? null, 'Umpire');
-            $scorer   = $this->resolveOfficial($row['scorer']   ?? null, 'Scorer');
-            $referee  = $this->resolveOfficial($row['referee']  ?? null, 'Match Referee');
-
-            $matchCount = $this->db->table('fixtures')
-                ->where('tournament_id', $tournamentId)->countAllResults() + 1;
-
-            $this->db->table('fixtures')->insert([
-                'tournament_id' => $tournamentId,
-                'match_number'  => $row['match_number'] ?? ('M' . str_pad($matchCount, 2, '0', STR_PAD_LEFT)),
-                'stage'         => $row['stage'] ?? 'League',
-                'zone'          => $row['zone'] ?? null,
-                'match_date'    => date('Y-m-d', strtotime($row['match_date'])),
-                'match_time'    => !empty($row['match_time']) ? date('H:i:s', strtotime($row['match_time'])) : '09:00:00',
-                'team_a_id'     => $teamA['id'],
-                'team_b_id'     => $teamB['id'],
-                'venue_id'      => $venue['id'] ?? null,
-                'umpire1_id'    => $umpire1,
-                'umpire2_id'    => $umpire2,
-                'scorer_id'     => $scorer,
-                'referee_id'    => $referee,
-                'is_day_night'  => (!empty($row['floodlights']) && strtolower($row['floodlights']) === 'y') ? 1 : 0,
-                'status'        => 'Scheduled',
-                'created_by'    => session('user_id'),
-                'created_at'    => date('Y-m-d H:i:s'),
-            ]);
-            $inserted++;
-        }
-
-        $this->db->transComplete();
-
-        $this->audit('FIXTURE_UPLOADED', 'fixtures', $tournamentId, null, ['rows' => $inserted]);
-
-        if (!empty($errors)) {
-            session()->setFlashdata('upload_errors', $errors);
-        }
-
-        return redirect()->to('/fixtures/tournament/' . $tournamentId)
-            ->with('success', "{$inserted} match(es) imported successfully." . (count($errors) ? ' Some rows had errors — see details.' : ''));
-    }
-
-    // ── GET /fixtures/download-template ─────────────────────
-    public function downloadTemplate()
-    {
-        $filename = 'JSCA_Fixture_Template_v2.csv';
-        header('Content-Type: text/csv');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-
-        $handle = fopen('php://output', 'w');
-        fputcsv($handle, [
-            'match_number','match_date (YYYY-MM-DD)','match_time (HH:MM)','stage',
-            'team_a','team_b','venue','format','zone',
-            'umpire_1','umpire_2','scorer','referee',
-            'floodlights (Y/N)','notes'
-        ]);
-        // Sample rows
-        fputcsv($handle, ['M01','2024-04-15','09:00','League','Ranchi XI','Dhanbad FC','JSCA International Stadium','T20','South Zone','Ravi Sharma','Priya Tiwari','Anil Das','Mohan Referee','Y','']);
-        fputcsv($handle, ['M02','2024-04-15','13:00','League','Bokaro Stars','Jamshedpur Royals','JSCA International Stadium','T20','East Zone','','','','','Y','']);
-        fclose($handle);
-        exit;
-    }
-
-    // ── GET /fixtures/view/:id ───────────────────────────────
+    // ── GET /fixtures/view/:id ────────────────────────────────
     public function view(int $id)
     {
-        $fixture = $this->db->table('fixtures f')
-            ->select('f.*, t.name as tournament_name, ta.name as team_a_name, tb.name as team_b_name,
-                      v.name as venue_name, v.has_floodlights, v.address as venue_address,
-                      o1.full_name as umpire1_name, o2.full_name as umpire2_name,
-                      sc.full_name as scorer_name, rf.full_name as referee_name')
+        $fixture = $this->_getFixtureFull($id);
+        if (!$fixture) return redirect()->to('fixtures')->with('error', 'Fixture not found.');
+
+        $teamAPlayers = $this->_getTeamPlayers($fixture['team_a_id']);
+        $teamBPlayers = $this->_getTeamPlayers($fixture['team_b_id']);
+
+        $battingStats = $this->db->table('batting_stats bs')
+            ->select('bs.*, p.full_name, t.name as team_name')
+            ->join('players p', 'p.id = bs.player_id')
+            ->join('teams t',   't.id = bs.team_id')
+            ->where('bs.fixture_id', $id)
+            ->orderBy('bs.innings')->orderBy('bs.id')
+            ->get()->getResultArray();
+
+        $bowlingStats = $this->db->table('bowling_stats bs')
+            ->select('bs.*, p.full_name, t.name as team_name')
+            ->join('players p', 'p.id = bs.player_id')
+            ->join('teams t',   't.id = bs.team_id')
+            ->where('bs.fixture_id', $id)
+            ->orderBy('bs.innings')->orderBy('bs.id')
+            ->get()->getResultArray();
+
+        return $this->render('fixtures/view', [
+            'pageTitle'    => $fixture['team_a_name'] . ' vs ' . $fixture['team_b_name'],
+            'fixture'      => $fixture,
+            'teamAPlayers' => $teamAPlayers,
+            'teamBPlayers' => $teamBPlayers,
+            'battingStats' => $battingStats,
+            'bowlingStats' => $bowlingStats,
+            'canManage'    => $this->can('fixtures'),
+        ]);
+    }
+
+    // ── GET /fixtures/edit/:id ────────────────────────────────
+    public function edit(int $id)
+    {
+        $this->requirePermission('fixtures');
+
+        $fixture = $this->_getFixtureFull($id);
+        if (!$fixture) return redirect()->to('fixtures')->with('error', 'Fixture not found.');
+
+        if ($fixture['status'] === 'Completed') {
+            return redirect()->to('fixtures/view/' . $id)->with('error', 'Completed fixtures cannot be edited.');
+        }
+
+        $teams     = $this->db->table('teams')->where('tournament_id', $fixture['tournament_id'])->where('status', 'Confirmed')->orderBy('name')->get()->getResultArray();
+        $venues    = $this->_getVenuesForTournament($fixture['tournament_id']);
+        $umpires   = $this->_getOfficialsByType(['Umpire'], $fixture['tournament_id']);
+        $scorers   = $this->_getOfficialsByType(['Scorer'], $fixture['tournament_id']);
+        $referees  = $this->_getOfficialsByType(['Referee', 'Match Referee'], $fixture['tournament_id']);
+
+        return $this->render('fixtures/form', [
+            'pageTitle'   => 'Edit Fixture — JSCA ERP',
+            'fixture'     => $fixture,
+            'tournaments' => [],
+            'tournament'  => ['id' => $fixture['tournament_id'], 'name' => $fixture['tournament_name']],
+            'teams'       => $teams,
+            'venues'      => $venues,
+            'umpires'     => $umpires,
+            'scorers'     => $scorers,
+            'referees'    => $referees,
+            'tournamentId'=> $fixture['tournament_id'],
+        ]);
+    }
+
+    // ── POST /fixtures/update/:id ─────────────────────────────
+    public function update(int $id)
+    {
+        $this->requirePermission('fixtures');
+
+        $fixture = $this->db->table('fixtures')->where('id', $id)->get()->getRowArray();
+        if (!$fixture) return redirect()->to('fixtures')->with('error', 'Fixture not found.');
+        if ($fixture['status'] === 'Completed') {
+            return redirect()->to('fixtures/view/' . $id)->with('error', 'Completed fixtures cannot be edited.');
+        }
+
+        $rules = [
+            'match_date' => 'required|valid_date[Y-m-d]',
+            'match_time' => 'required',
+            'venue_id'   => 'required|is_natural_no_zero',
+            'team_a_id'  => 'required|is_natural_no_zero',
+            'team_b_id'  => 'required|is_natural_no_zero',
+        ];
+
+        if (!$this->validate($rules)) {
+            return redirect()->back()->with('errors', $this->validator->getErrors())->withInput();
+        }
+
+        $post = $this->request->getPost();
+
+        if ($post['team_a_id'] === $post['team_b_id']) {
+            return redirect()->back()->with('error', 'Team A and Team B cannot be the same.')->withInput();
+        }
+
+        $data = [
+            'match_number'  => $post['match_number'],
+            'stage'         => $post['stage'] ?: 'League',
+            'match_date'    => $post['match_date'],
+            'match_time'    => $post['match_time'],
+            'team_a_id'     => $post['team_a_id'],
+            'team_b_id'     => $post['team_b_id'],
+            'venue_id'      => $post['venue_id'],
+            'is_day_night'  => isset($post['is_day_night']) ? 1 : 0,
+            'umpire1_id'    => $post['umpire1_id']  ?: null,
+            'umpire2_id'    => $post['umpire2_id']  ?: null,
+            'scorer_id'     => $post['scorer_id']   ?: null,
+            'referee_id'    => $post['referee_id']  ?: null,
+            'youtube_url'   => $post['youtube_url'] ?: null,
+            'status'        => $post['status'],
+            'updated_at'    => date('Y-m-d H:i:s'),
+        ];
+
+        $this->db->table('fixtures')->where('id', $id)->update($data);
+        $this->audit('UPDATE', 'fixtures', $id, $fixture, $data);
+
+        return redirect()->to('fixtures/view/' . $id)->with('success', 'Fixture updated.');
+    }
+
+    // ── POST /fixtures/delete/:id ─────────────────────────────
+    public function delete(int $id)
+    {
+        $this->requirePermission('fixtures');
+
+        $fixture = $this->db->table('fixtures')->where('id', $id)->get()->getRowArray();
+        if (!$fixture) return redirect()->to('fixtures')->with('error', 'Fixture not found.');
+
+        if ($fixture['status'] === 'Completed') {
+            return redirect()->to('fixtures/view/' . $id)->with('error', 'Completed fixtures cannot be deleted.');
+        }
+
+        $tournamentId = $fixture['tournament_id'];
+        $this->db->table('fixtures')->where('id', $id)->delete();
+        $this->audit('DELETE', 'fixtures', $id, $fixture);
+
+        return redirect()->to('fixtures?tournament_id=' . $tournamentId)
+            ->with('success', 'Fixture deleted.');
+    }
+
+    // ── GET /fixtures/tournament/:id ──────────────────────────
+    public function tournament(int $id)
+    {
+        return redirect()->to('fixtures?tournament_id=' . $id);
+    }
+
+    // ── Private helpers ───────────────────────────────────────
+    private function _getFixtureFull(int $id): ?array
+    {
+        $f = $this->db->table('fixtures f')
+            ->select('f.*,
+                t.name as tournament_name, t.age_category, t.format, t.overs as tournament_overs,
+                ta.name as team_a_name, tb.name as team_b_name,
+                v.name as venue_name, v.address as venue_address,
+                u1.full_name as umpire1_name, u2.full_name as umpire2_name,
+                sc.full_name as scorer_name, rf.full_name as referee_name,
+                tw.name as toss_winner_name, bf.name as batting_first_name')
             ->join('tournaments t',  't.id = f.tournament_id')
             ->join('teams ta',       'ta.id = f.team_a_id')
             ->join('teams tb',       'tb.id = f.team_b_id')
-            ->join('venues v',       'v.id = f.venue_id')
-            ->join('officials o1',   'o1.id = f.umpire1_id', 'left')
-            ->join('officials o2',   'o2.id = f.umpire2_id', 'left')
-            ->join('officials sc',   'sc.id = f.scorer_id',  'left')
-            ->join('officials rf',   'rf.id = f.referee_id', 'left')
+            ->join('venues v',       'v.id = f.venue_id',        'left')
+            ->join('officials u1',   'u1.id = f.umpire1_id',     'left')
+            ->join('officials u2',   'u2.id = f.umpire2_id',     'left')
+            ->join('officials sc',   'sc.id = f.scorer_id',      'left')
+            ->join('officials rf',   'rf.id = f.referee_id',     'left')
+            ->join('teams tw',       'tw.id = f.toss_winner_id', 'left')
+            ->join('teams bf',       'bf.id = f.batting_first_id','left')
             ->where('f.id', $id)
             ->get()->getRowArray();
 
-        if (!$fixture) return redirect()->to('/fixtures')->with('error', 'Fixture not found.');
-
-        $scorecard = $this->db->table('match_scorecards')->where('fixture_id', $id)->get()->getRowArray();
-
-        return $this->render('fixtures/view', [
-            'pageTitle' => 'Match ' . $fixture['match_number'],
-            'fixture'   => $fixture,
-            'scorecard' => $scorecard,
-        ]);
+        return $f ?: null;
     }
 
-    // ── Export fixture to CSV ─────────────────────────────────
-    public function export(int $tournamentId)
+    private function _getTeamPlayers(int $teamId): array
     {
-        $tournament = $this->db->table('tournaments')->where('id', $tournamentId)->get()->getRowArray();
-
-        $fixtures = $this->db->table('fixtures f')
-            ->select('f.match_number, f.match_date, f.match_time, f.stage, f.zone,
-                      ta.name as team_a, tb.name as team_b, v.name as venue, t.format,
-                      o1.full_name as umpire1, o2.full_name as umpire2,
-                      sc.full_name as scorer, rf.full_name as referee,
-                      IF(f.is_day_night, "Y", "N") as floodlights, f.status')
-            ->join('teams ta',    'ta.id = f.team_a_id')
-            ->join('teams tb',    'tb.id = f.team_b_id')
-            ->join('venues v',    'v.id = f.venue_id')
-            ->join('tournaments t','t.id = f.tournament_id')
-            ->join('officials o1','o1.id = f.umpire1_id', 'left')
-            ->join('officials o2','o2.id = f.umpire2_id', 'left')
-            ->join('officials sc','sc.id = f.scorer_id',  'left')
-            ->join('officials rf','rf.id = f.referee_id', 'left')
-            ->where('f.tournament_id', $tournamentId)
-            ->orderBy('f.match_date')->orderBy('f.match_time')
+        return $this->db->table('team_players tp')
+            ->select('p.id, p.full_name, p.jsca_player_id, p.role, tp.is_captain, tp.is_vice_captain, tp.is_wk, tp.jersey_number')
+            ->join('players p', 'p.id = tp.player_id')
+            ->where('tp.team_id', $teamId)
+            ->orderBy('tp.jersey_number')
             ->get()->getResultArray();
-
-        $filename = 'JSCA_Fixture_' . str_replace(' ', '_', $tournament['name'] ?? $tournamentId) . '_' . date('Ymd') . '.csv';
-        header('Content-Type: text/csv');
-        header('Content-Disposition: attachment; filename="' . $filename . '"');
-
-        $handle = fopen('php://output', 'w');
-        fputcsv($handle, array_keys($fixtures[0] ?? []));
-        foreach ($fixtures as $row) fputcsv($handle, array_values($row));
-        fclose($handle);
-        exit;
     }
 
-    // ─── Private helpers ──────────────────────────────────────
-    private function parseCSV(string $path): array
+    /**
+     * Get venues scoped to districts of confirmed teams in the tournament.
+     * Superadmin always gets all venues.
+     * If no tournament selected yet, fall back to user's allowed districts.
+     */
+    private function _getVenuesForTournament(?int $tournamentId): array
     {
-        $rows    = [];
-        $headers = [];
-        if (($handle = fopen($path, 'r')) !== false) {
-            while (($data = fgetcsv($handle)) !== false) {
-                if (empty($headers)) {
-                    $headers = array_map('strtolower', array_map('trim', $data));
-                    $headers = array_map(fn($h) => str_replace([' ', '(', ')'], ['_', '', ''], $h), $headers);
-                } else {
-                    $rows[] = array_combine($headers, $data);
-                }
-            }
-            fclose($handle);
-        }
-        return $rows;
-    }
+        $q = $this->db->table('venues v')
+            ->select('v.id, v.name, d.name as district_name')
+            ->join('districts d', 'd.id = v.district_id')
+            ->where('v.is_active', 1)
+            ->orderBy('v.name');
 
-    private function parseExcel(string $path): array
-    {
-        // Requires phpoffice/phpspreadsheet
-        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($path);
-        $sheet       = $spreadsheet->getActiveSheet()->toArray(null, true, true, false);
-        $rows        = [];
-        $headers     = [];
-        foreach ($sheet as $i => $row) {
-            $row = array_map('trim', $row);
-            if ($i === 0) {
-                $headers = array_map('strtolower', $row);
+        $isSuperadmin = ($this->currentUser['role_name'] ?? '') === 'superadmin';
+
+        if (!$isSuperadmin) {
+            if ($tournamentId) {
+                // Scope to districts of confirmed teams in this tournament
+                $districtIds = $this->db->table('teams')
+                    ->select('DISTINCT district_id')
+                    ->where('tournament_id', $tournamentId)
+                    ->where('status', 'Confirmed')
+                    ->get()->getResultArray();
+                $districtIds = array_column($districtIds, 'district_id');
             } else {
-                if (array_filter($row)) {
-                    $rows[] = array_combine($headers, $row);
-                }
+                $districtIds = $this->getAllowedDistrictIdsFlat();
             }
+
+            if (empty($districtIds)) return [];
+            $q->whereIn('v.district_id', $districtIds);
         }
-        return $rows;
+
+        return $q->get()->getResultArray();
     }
 
-    private function resolveOfficial(?string $name, string $role): ?int
+    /**
+     * Get officials of given types scoped to districts of the tournament.
+     * Superadmin gets all. Others get officials from tournament districts only.
+     */
+    private function _getOfficialsByType(array $types, ?int $tournamentId): array
     {
-        if (empty($name)) return null;
-        $official = $this->db->table('officials')
-            ->where('role', $role)
-            ->like('full_name', $name)
-            ->get()->getRowArray();
-        return $official['id'] ?? null;
+        $q = $this->db->table('officials o')
+            ->select('o.id, o.full_name, d.name as district_name')
+            ->join('official_types ot', 'ot.id = o.official_type_id')
+            ->join('districts d', 'd.id = o.district_id')
+            ->where('o.status', 'Active')
+            ->whereIn('ot.name', $types)
+            ->orderBy('o.full_name');
+
+        $isSuperadmin = ($this->currentUser['role_name'] ?? '') === 'superadmin';
+
+        if (!$isSuperadmin) {
+            if ($tournamentId) {
+                $districtIds = $this->db->table('teams')
+                    ->select('DISTINCT district_id')
+                    ->where('tournament_id', $tournamentId)
+                    ->where('status', 'Confirmed')
+                    ->get()->getResultArray();
+                $districtIds = array_column($districtIds, 'district_id');
+            } else {
+                $districtIds = $this->getAllowedDistrictIdsFlat();
+            }
+
+            if (empty($districtIds)) return [];
+            $q->whereIn('o.district_id', $districtIds);
+        }
+
+        return $q->get()->getResultArray();
     }
 }
