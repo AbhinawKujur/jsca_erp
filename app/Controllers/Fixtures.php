@@ -120,13 +120,78 @@ class Fixtures extends BaseController
             return redirect()->back()->with('error', 'Tournament must be in Fixture Ready or Ongoing status.')->withInput();
         }
 
+        // Check if either team already has a fixture on the same date (scheduling conflict)
+        $conflictA = $this->db->table('fixtures')
+            ->where('match_date', $post['match_date'])
+            ->whereIn('status', ['Scheduled', 'Live'])
+            ->groupStart()
+                ->where('team_a_id', $post['team_a_id'])
+                ->orWhere('team_b_id', $post['team_a_id'])
+            ->groupEnd()
+            ->countAllResults();
+
+        $conflictB = $this->db->table('fixtures')
+            ->where('match_date', $post['match_date'])
+            ->whereIn('status', ['Scheduled', 'Live'])
+            ->groupStart()
+                ->where('team_a_id', $post['team_b_id'])
+                ->orWhere('team_b_id', $post['team_b_id'])
+            ->groupEnd()
+            ->countAllResults();
+
+        if ($conflictA > 0) {
+            return redirect()->back()->with('error', 'Team A already has a Scheduled or Live fixture on ' . date('d M Y', strtotime($post['match_date'])) . '. Complete that match first.')->withInput();
+        }
+        if ($conflictB > 0) {
+            return redirect()->back()->with('error', 'Team B already has a Scheduled or Live fixture on ' . date('d M Y', strtotime($post['match_date'])) . '. Complete that match first.')->withInput();
+        }
+
+        // Check officials are not already assigned to another Scheduled/Live fixture on the same date
+        $officialFields = [
+            'umpire1_id' => 'Umpire 1',
+            'umpire2_id' => 'Umpire 2',
+            'scorer_id'  => 'Scorer',
+            'referee_id' => 'Referee',
+        ];
+        foreach ($officialFields as $field => $label) {
+            if (empty($post[$field])) continue;
+            $conflict = $this->db->table('fixtures')
+                ->where('match_date', $post['match_date'])
+                ->whereIn('status', ['Scheduled', 'Live'])
+                ->groupStart()
+                    ->where('umpire1_id', (int)$post[$field])
+                    ->orWhere('umpire2_id', (int)$post[$field])
+                    ->orWhere('scorer_id',  (int)$post[$field])
+                    ->orWhere('referee_id', (int)$post[$field])
+                ->groupEnd()
+                ->countAllResults();
+            if ($conflict > 0) {
+                $official = $this->db->table('officials')->select('full_name')->where('id', (int)$post[$field])->get()->getRowArray();
+                return redirect()->back()->with('error',
+                    $label . ' (' . ($official['full_name'] ?? '') . ') is already assigned to a Scheduled or Live fixture on ' . date('d M Y', strtotime($post['match_date'])) . '. Complete that match first.')
+                    ->withInput();
+            }
+        }
+
         // Auto match number
-        $matchCount = $this->db->table('fixtures')->where('tournament_id', $post['tournament_id'])->countAllResults();
+        $matchCount  = $this->db->table('fixtures')->where('tournament_id', $post['tournament_id'])->countAllResults();
         $matchNumber = 'M' . str_pad($matchCount + 1, 2, '0', STR_PAD_LEFT);
+        $finalMatchNumber = $post['match_number'] ?: $matchNumber;
+
+        // Block duplicate match number within same tournament
+        if (!empty($post['match_number'])) {
+            $dupCheck = $this->db->table('fixtures')
+                ->where('tournament_id', $post['tournament_id'])
+                ->where('match_number', $post['match_number'])
+                ->countAllResults();
+            if ($dupCheck > 0) {
+                return redirect()->back()->with('error', 'Match number "' . $post['match_number'] . '" already exists in this tournament. Use a different number.')->withInput();
+            }
+        }
 
         $data = [
             'tournament_id' => $post['tournament_id'],
-            'match_number'  => $post['match_number'] ?: $matchNumber,
+            'match_number'  => $finalMatchNumber,
             'stage'         => $post['stage'] ?: 'League',
             'match_date'    => $post['match_date'],
             'match_time'    => $post['match_time'],
@@ -144,48 +209,33 @@ class Fixtures extends BaseController
             'created_at'    => date('Y-m-d H:i:s'),
         ];
 
-        $match_officials = [
-            // Umpire 1
-            [
-                'match_number'     => $post['match_number'] ?: $matchNumber,
-                'official_type_id' => 1,
-                'official_id'      => $post['umpire1_id'],
-                'name'             => $this->db->query("SELECT full_name FROM officials WHERE id = " . (int)$post['umpire1_id'])->getRowArray()['full_name'] ?? 'Umpire 1',
-                'status'           => 'Active',
-            ],
-            // Umpire 2
-            [
-                'match_number'     => $post['match_number'] ?: $matchNumber,
-                'official_type_id' => 1,
-                'official_id'      => $post['umpire2_id'],
-                'name'             => $this->db->query("SELECT full_name FROM officials WHERE id = " . (int)$post['umpire2_id'])->getRowArray()['full_name'] ?? 'Umpire 2',
-                'status'           => 'Active',
-            ],
-            // Scorer
-            [
-                'match_number'     => $post['match_number'] ?: $matchNumber,
-                'official_type_id' => 2,
-                'official_id'      => $post['scorer_id'],
-                'name'             => $this->db->query("SELECT full_name FROM officials WHERE id = " . (int)$post['scorer_id'])->getRowArray()['full_name'] ?? 'Scorer',
-                'status'           => 'Active',
-            ],
-            // Referee
-            [
-                'match_number'     => $post['match_number'] ?: $matchNumber,
-                'official_type_id' => 3,
-                'official_id'      => $post['referee_id'],
-                'name'             => $this->db->query("SELECT full_name FROM officials WHERE id = " . (int)$post['scorer_id'])->getRowArray()['full_name'] ?? 'Referee',
-                'status'           => 'Active',
-            ],
-        ];
-
-        $this->db->insert_batch('match_officials', $match_officials);
-
-        // If using CodeIgniter 4, you can insert all at once:
-        // $this->db->table('your_table_name')->insertBatch($match_officials);
-
         $this->db->table('fixtures')->insert($data);
         $id = $this->db->insertID();
+
+        // Insert match_officials records for payment tracking (only for assigned officials)
+        $officialsToInsert = [];
+        $officialMap = [
+            'umpire1_id'  => ['type' => 1, 'fee' => 'umpire1_fee'],
+            'umpire2_id'  => ['type' => 1, 'fee' => 'umpire2_fee'],
+            'scorer_id'   => ['type' => 2, 'fee' => 'scorer_fee'],
+            'referee_id'  => ['type' => 3, 'fee' => 'referee_fee'],
+        ];
+        foreach ($officialMap as $field => $meta) {
+            if (empty($post[$field])) continue;
+            $official = $this->db->table('officials')->select('full_name')->where('id', (int)$post[$field])->get()->getRowArray();
+            if (!$official) continue;
+            $officialsToInsert[] = [
+                'match_id'         => $id,
+                'official_type_id' => $meta['type'],
+                'official_id'      => (int)$post[$field],
+                'name'             => $official['full_name'],
+                'PAmt'             => !empty($post[$meta['fee']]) ? (float)$post[$meta['fee']] : null,
+                'status'           => 'Active',
+            ];
+        }
+        if (!empty($officialsToInsert)) {
+            $this->db->table('match_officials')->insertBatch($officialsToInsert);
+        }
         $this->audit('CREATE', 'fixtures', $id, null, $data);
 
         return redirect()->to('fixtures/view/' . $id)
@@ -293,6 +343,34 @@ class Fixtures extends BaseController
             return redirect()->back()->with('error', 'Umpire 1 and Umpire 2 cannot be the same person.')->withInput();
         }
 
+        // Check officials not already assigned to another Scheduled/Live fixture on the same date (exclude current fixture)
+        $officialFields = [
+            'umpire1_id' => 'Umpire 1',
+            'umpire2_id' => 'Umpire 2',
+            'scorer_id'  => 'Scorer',
+            'referee_id' => 'Referee',
+        ];
+        foreach ($officialFields as $field => $label) {
+            if (empty($post[$field])) continue;
+            $conflict = $this->db->table('fixtures')
+                ->where('match_date', $post['match_date'])
+                ->where('id !=', $id)
+                ->whereIn('status', ['Scheduled', 'Live'])
+                ->groupStart()
+                    ->where('umpire1_id', (int)$post[$field])
+                    ->orWhere('umpire2_id', (int)$post[$field])
+                    ->orWhere('scorer_id',  (int)$post[$field])
+                    ->orWhere('referee_id', (int)$post[$field])
+                ->groupEnd()
+                ->countAllResults();
+            if ($conflict > 0) {
+                $official = $this->db->table('officials')->select('full_name')->where('id', (int)$post[$field])->get()->getRowArray();
+                return redirect()->back()->with('error',
+                    $label . ' (' . ($official['full_name'] ?? '') . ') is already assigned to a Scheduled or Live fixture on ' . date('d M Y', strtotime($post['match_date'])) . '. Complete that match first.')
+                    ->withInput();
+            }
+        }
+
         $data = [
             'match_number'  => $post['match_number'],
             'stage'         => $post['stage'] ?: 'League',
@@ -312,6 +390,33 @@ class Fixtures extends BaseController
         ];
 
         $this->db->table('fixtures')->where('id', $id)->update($data);
+
+        // Sync match_officials — delete old, reinsert with updated officials
+        $this->db->table('match_officials')->where('match_id', $id)->delete();
+        $officialsToInsert = [];
+        $officialMap = [
+            'umpire1_id'  => ['type' => 1, 'fee' => 'umpire1_fee'],
+            'umpire2_id'  => ['type' => 1, 'fee' => 'umpire2_fee'],
+            'scorer_id'   => ['type' => 2, 'fee' => 'scorer_fee'],
+            'referee_id'  => ['type' => 3, 'fee' => 'referee_fee'],
+        ];
+        foreach ($officialMap as $field => $meta) {
+            if (empty($post[$field])) continue;
+            $official = $this->db->table('officials')->select('full_name')->where('id', (int)$post[$field])->get()->getRowArray();
+            if (!$official) continue;
+            $officialsToInsert[] = [
+                'match_id'         => $id,
+                'official_type_id' => $meta['type'],
+                'official_id'      => (int)$post[$field],
+                'name'             => $official['full_name'],
+                'PAmt'             => !empty($post[$meta['fee']]) ? (float)$post[$meta['fee']] : null,
+                'status'           => 'Active',
+            ];
+        }
+        if (!empty($officialsToInsert)) {
+            $this->db->table('match_officials')->insertBatch($officialsToInsert);
+        }
+
         $this->audit('UPDATE', 'fixtures', $id, $fixture, $data);
 
         return redirect()->to('fixtures/view/' . $id)->with('success', 'Fixture updated.');
@@ -418,11 +523,11 @@ class Fixtures extends BaseController
     /**
      * Get officials of given types scoped to districts of the tournament.
      * Superadmin gets all. Others get officials from tournament districts only.
-     */
+     */ 
     private function _getOfficialsByType(array $types, ?int $tournamentId): array
     {
         $q = $this->db->table('officials o')
-            ->select('o.id, o.full_name, d.name as district_name')
+            ->select('o.id, o.full_name, o.fee_per_match, d.name as district_name')
             ->join('official_types ot', 'ot.id = o.official_type_id')
             ->join('districts d', 'd.id = o.district_id')
             ->where('o.status', 'Active')

@@ -202,6 +202,7 @@ $routes->group('', ['filter' => 'auth'], function ($routes) {
     $routes->group('admin', function ($routes) {
         $routes->get('users',                'Admin::users');
         $routes->get('users/create',         'Admin::createUser');
+        $routes->get('users/people-by-role', 'Admin::peopleByRole');
         $routes->post('users/store',         'Admin::storeUser');
         $routes->get('users/edit/(:num)',    'Admin::editUser/$1');
         $routes->post('users/update/(:num)', 'Admin::updateUser/$1');

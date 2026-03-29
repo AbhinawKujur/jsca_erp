@@ -23,6 +23,32 @@ class EmailHelper
         ]);
     }
 
+    public function sendUserCredentials(string $toEmail, string $name, string $password, string $role): bool
+    {
+        $this->mailer->setTo($toEmail);
+        $this->mailer->setSubject('JSCA — Your Account Credentials');
+        $loginUrl = base_url('login');
+        $this->mailer->setMessage(<<<HTML
+        <div style="font-family:Segoe UI,sans-serif;max-width:480px;margin:auto;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;">
+          <div style="background:#1a3a5c;padding:20px 24px;">
+            <h2 style="color:#fff;margin:0;font-size:18px;">&#127951; JSCA ERP &mdash; Account Credentials</h2>
+          </div>
+          <div style="padding:24px;">
+            <p>Dear <strong>{$name}</strong>,</p>
+            <p>Your JSCA ERP account has been set up. Here are your login credentials:</p>
+            <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+              <tr><td style="padding:8px;background:#f8f9fa;font-weight:600;width:40%;">Email</td><td style="padding:8px;background:#f8f9fa;">{$toEmail}</td></tr>
+              <tr><td style="padding:8px;font-weight:600;">Password</td><td style="padding:8px;">{$password}</td></tr>
+              <tr><td style="padding:8px;background:#f8f9fa;font-weight:600;">Role</td><td style="padding:8px;background:#f8f9fa;">{$role}</td></tr>
+            </table>
+            <p style="color:#e74c3c;font-size:12px;"><strong>Please change your password after first login.</strong></p>
+            <a href="{$loginUrl}" style="display:inline-block;background:#1a3a5c;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;">Login to JSCA ERP</a>
+          </div>
+        </div>
+        HTML);
+        return $this->mailer->send(false);
+    }
+
     public function sendOtp(string $toEmail, string $otp): bool
     {
         $this->mailer->setTo($toEmail);

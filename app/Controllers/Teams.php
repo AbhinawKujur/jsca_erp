@@ -228,11 +228,17 @@ class Teams extends BaseController
 
         $availablePlayers = $availableQuery->get()->getResultArray();
 
-        $availableCoaches = $this->db->table('coaches')
+        // Coaches: for District/Club tournaments scope to team's district, State/National = any
+        $coachQuery = $this->db->table('coaches')
             ->where('status', 'Active')
             ->whereNotIn('id', array_column($coaches, 'coach_id') ?: [0])
-            ->orderBy('full_name')
-            ->get()->getResultArray();
+            ->orderBy('full_name');
+
+        if (in_array($tournamentType, ['District', 'Club'])) {
+            $coachQuery->where('district_id', $team['district_id']);
+        }
+
+        $availableCoaches = $coachQuery->get()->getResultArray();
 
         $canManage = $this->can('players') && $this->canAccessDistrict((int)$team['district_id']);
 

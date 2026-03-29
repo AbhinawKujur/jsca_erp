@@ -164,47 +164,74 @@ $action = $isEdit ? base_url('fixtures/update/' . $fixture['id']) : base_url('fi
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label fw-semibold">Umpire 1</label>
-              <select name="umpire1_id" class="form-select">
+              <select name="umpire1_id" class="form-select official-select" data-fee-target="umpire1_fee">
                 <option value="">— None —</option>
                 <?php foreach ($umpires as $u): ?>
-                  <option value="<?= $u['id'] ?>" <?= old('umpire1_id', $fixture['umpire1_id'] ?? '') == $u['id'] ? 'selected' : '' ?>>
+                  <option value="<?= $u['id'] ?>" data-fee="<?= $u['fee_per_match'] ?? 0 ?>"
+                    <?= old('umpire1_id', $fixture['umpire1_id'] ?? '') == $u['id'] ? 'selected' : '' ?>>
                     <?= esc($u['full_name']) ?><?= !empty($u['district_name']) ? ' — ' . esc($u['district_name']) : '' ?>
                   </option>
                 <?php endforeach; ?>
               </select>
             </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Umpire 1 Fee (&#8377;)</label>
+              <input type="number" name="umpire1_fee" id="umpire1_fee" class="form-control" min="0" step="0.01"
+                value="<?= old('umpire1_fee', $fixture['umpire1_fee'] ?? '') ?>" placeholder="Auto-filled from official rate">
+            </div>
+
             <div class="col-md-6">
               <label class="form-label fw-semibold">Umpire 2</label>
-              <select name="umpire2_id" class="form-select">
+              <select name="umpire2_id" class="form-select official-select" data-fee-target="umpire2_fee">
                 <option value="">— None —</option>
                 <?php foreach ($umpires as $u): ?>
-                  <option value="<?= $u['id'] ?>" <?= old('umpire2_id', $fixture['umpire2_id'] ?? '') == $u['id'] ? 'selected' : '' ?>>
+                  <option value="<?= $u['id'] ?>" data-fee="<?= $u['fee_per_match'] ?? 0 ?>"
+                    <?= old('umpire2_id', $fixture['umpire2_id'] ?? '') == $u['id'] ? 'selected' : '' ?>>
                     <?= esc($u['full_name']) ?><?= !empty($u['district_name']) ? ' — ' . esc($u['district_name']) : '' ?>
                   </option>
                 <?php endforeach; ?>
               </select>
             </div>
             <div class="col-md-6">
+              <label class="form-label fw-semibold">Umpire 2 Fee (&#8377;)</label>
+              <input type="number" name="umpire2_fee" id="umpire2_fee" class="form-control" min="0" step="0.01"
+                value="<?= old('umpire2_fee', $fixture['umpire2_fee'] ?? '') ?>" placeholder="Auto-filled from official rate">
+            </div>
+
+            <div class="col-md-6">
               <label class="form-label fw-semibold">Scorer</label>
-              <select name="scorer_id" class="form-select">
+              <select name="scorer_id" class="form-select official-select" data-fee-target="scorer_fee">
                 <option value="">— None —</option>
                 <?php foreach ($scorers as $s): ?>
-                  <option value="<?= $s['id'] ?>" <?= old('scorer_id', $fixture['scorer_id'] ?? '') == $s['id'] ? 'selected' : '' ?>>
+                  <option value="<?= $s['id'] ?>" data-fee="<?= $s['fee_per_match'] ?? 0 ?>"
+                    <?= old('scorer_id', $fixture['scorer_id'] ?? '') == $s['id'] ? 'selected' : '' ?>>
                     <?= esc($s['full_name']) ?><?= !empty($s['district_name']) ? ' — ' . esc($s['district_name']) : '' ?>
                   </option>
                 <?php endforeach; ?>
               </select>
             </div>
             <div class="col-md-6">
+              <label class="form-label fw-semibold">Scorer Fee (&#8377;)</label>
+              <input type="number" name="scorer_fee" id="scorer_fee" class="form-control" min="0" step="0.01"
+                value="<?= old('scorer_fee', $fixture['scorer_fee'] ?? '') ?>" placeholder="Auto-filled from official rate">
+            </div>
+
+            <div class="col-md-6">
               <label class="form-label fw-semibold">Match Referee</label>
-              <select name="referee_id" class="form-select">
+              <select name="referee_id" class="form-select official-select" data-fee-target="referee_fee">
                 <option value="">— None —</option>
                 <?php foreach ($referees as $r): ?>
-                  <option value="<?= $r['id'] ?>" <?= old('referee_id', $fixture['referee_id'] ?? '') == $r['id'] ? 'selected' : '' ?>>
+                  <option value="<?= $r['id'] ?>" data-fee="<?= $r['fee_per_match'] ?? 0 ?>"
+                    <?= old('referee_id', $fixture['referee_id'] ?? '') == $r['id'] ? 'selected' : '' ?>>
                     <?= esc($r['full_name']) ?><?= !empty($r['district_name']) ? ' — ' . esc($r['district_name']) : '' ?>
                   </option>
                 <?php endforeach; ?>
               </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Referee Fee (&#8377;)</label>
+              <input type="number" name="referee_fee" id="referee_fee" class="form-control" min="0" step="0.01"
+                value="<?= old('referee_fee', $fixture['referee_fee'] ?? '') ?>" placeholder="Auto-filled from official rate">
             </div>
             <div class="col-12">
               <label class="form-label fw-semibold">YouTube / Stream URL</label>
@@ -268,3 +295,19 @@ teamA.addEventListener('change', preventSameTeam);
 teamB.addEventListener('change', preventSameTeam);
 </script>
 <?php endif; ?>
+
+<script>
+// Auto-fill fee when official is selected
+document.querySelectorAll('.official-select').forEach(function(select) {
+  select.addEventListener('change', function() {
+    const targetId = this.dataset.feeTarget;
+    const selected = this.options[this.selectedIndex];
+    const fee = selected ? (selected.dataset.fee || '') : '';
+    const input = document.getElementById(targetId);
+    if (input && fee) input.value = fee;
+    else if (input) input.value = '';
+  });
+  // Trigger on page load for edit mode
+  if (select.value) select.dispatchEvent(new Event('change'));
+});
+</script>

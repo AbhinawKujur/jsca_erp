@@ -18,9 +18,11 @@ class Admin extends BaseController
         $this->requireAdmin();
 
         $users = $this->db->table('users u')
-            ->select('u.*, r.name as role_name')
+            ->select('u.*, r.name as role_name,
+                (SELECT p.jsca_player_id FROM players p WHERE p.user_id=u.id LIMIT 1) as jsca_player_id,
+                (SELECT o.jsca_official_id FROM officials o WHERE o.user_id=u.id LIMIT 1) as jsca_official_id')
             ->join('roles r', 'r.id = u.role_id')
-            ->orderBy('u.created_at', 'DESC')
+            ->orderBy('r.name')->orderBy('u.full_name')
             ->get()->getResultArray();
 
         return $this->render('admin/users', [
@@ -48,6 +50,53 @@ class Admin extends BaseController
             'assigned'    => [],
             'userPerms'   => [],
         ]);
+    }
+
+    // ── GET /admin/users/people-by-role?role=umpire ──────────
+    // Returns JSON list of people for that role who have no user account yet
+    public function peopleByRole()
+    {
+        $this->requireAdmin();
+        $role = $this->request->getGet('role');
+
+        $people = [];
+
+        switch ($role) {
+            case 'umpire':
+            case 'scorer':
+            case 'referee':
+            case 'match_referee':
+                // Map role name to official_type
+                $typeMap = [
+                    'umpire'        => 'Umpire',
+                    'scorer'        => 'Scorer',
+                    'referee'       => 'Referee',
+                    'match_referee' => 'Match Referee',
+                ];
+                $people = $this->db->table('officials o')
+                    ->select('o.id, o.full_name, o.jsca_official_id as jsca_id, o.phone, o.email, "official" as entity_type')
+                    ->join('official_types ot', 'ot.id=o.official_type_id')
+                    ->where('ot.name', $typeMap[$role])
+                    ->where('o.user_id IS NULL')
+                    ->orderBy('o.full_name')
+                    ->get()->getResultArray();
+                break;
+
+            case 'selector':
+            case 'data_entry':
+                $people = $this->db->table('players p')
+                    ->select('p.id, p.full_name, p.jsca_player_id as jsca_id, p.phone, p.email, "player" as entity_type')
+                    ->where('p.user_id IS NULL')
+                    ->orderBy('p.full_name')
+                    ->get()->getResultArray();
+                break;
+
+            default:
+                // admin, accounts, data_entry — no linked entity, return empty
+                $people = [];
+        }
+
+        return $this->response->setJSON($people);
     }
 
     // ── POST /admin/users/store ──────────────────────────────
@@ -86,8 +135,48 @@ class Admin extends BaseController
         $userId = $this->db->insertID();
         $this->syncDistricts($userId, $this->request->getPost('district_ids') ?? []);
 
+        // Link user back to official or player if entity_id provided
+        $entityType = $this->request->getPost('entity_type');
+        $entityId   = (int) $this->request->getPost('entity_id');
+        if ($entityId) {
+            if ($entityType === 'official') {
+                $this->db->table('officials')->where('id', $entityId)->update([
+                    'user_id' => $userId,
+                    'email'   => $this->request->getPost('email') ?: null,
+                ]);
+            } elseif ($entityType === 'player') {
+                $this->db->table('players')->where('id', $entityId)->update([
+                    'user_id' => $userId,
+                    'email'   => $this->request->getPost('email') ?: null,
+                ]);
+            }
+        }
+
+        // Send credentials if email provided
+        $email    = $this->request->getPost('email');
+        $password = $this->request->getPost('password');
+        if ($email && $password) {
+            $roleName = $this->db->table('roles')->where('id', $this->request->getPost('role_id'))->get()->getRowArray()['name'] ?? '';
+            if ($entityType === 'official' && $entityId) {
+                $official = $this->db->table('officials o')
+                    ->select('o.jsca_official_id, ot.name as type_name')
+                    ->join('official_types ot', 'ot.id=o.official_type_id')
+                    ->where('o.id', $entityId)->get()->getRowArray();
+                if ($official) {
+                    (new \App\Libraries\EmailHelper())->sendOfficialCredentials(
+                        $email, $this->request->getPost('full_name'),
+                        $official['jsca_official_id'], $password, $official['type_name']
+                    );
+                }
+            } else {
+                (new \App\Libraries\EmailHelper())->sendUserCredentials(
+                    $email, $this->request->getPost('full_name'), $password, $roleName
+                );
+            }
+        }
+
         $this->audit('CREATE', 'users', $userId);
-        return redirect()->to('/admin/users')->with('success', 'User created successfully.');
+        return redirect()->to('/admin/users')->with('success', 'User created.' . ($email && $password ? ' Credentials sent to ' . $email . '.' : ''));
     }
 
     // ── GET /admin/users/edit/:id ────────────────────────────
@@ -164,8 +253,44 @@ class Admin extends BaseController
             session()->remove('allowed_district_ids');
         }
 
+        // Send credentials email if both email and new password were provided
+        $newPassword = $this->request->getPost('password');
+        $email       = $this->request->getPost('email');
+        $user        = $this->db->table('users u')
+            ->select('u.full_name, r.name as role_name')
+            ->join('roles r', 'r.id=u.role_id')
+            ->where('u.id', $id)->get()->getRowArray();
+
+        // Sync email back to linked official/player
+        if ($email) {
+            $official = $this->db->table('officials')->where('user_id', $id)->get()->getRowArray();
+            if ($official) {
+                $this->db->table('officials')->where('user_id', $id)->update(['email' => $email]);
+            }
+            $player = $this->db->table('players')->where('user_id', $id)->get()->getRowArray();
+            if ($player) {
+                $this->db->table('players')->where('user_id', $id)->update(['email' => $email]);
+            }
+        }
+
+        if ($newPassword && $email && $user) {
+            // Check if linked to an official
+            $official = $this->db->table('officials')->where('user_id', $id)->get()->getRowArray();
+            if ($official) {
+                (new \App\Libraries\EmailHelper())->sendOfficialCredentials(
+                    $email, $user['full_name'], $official['jsca_official_id'], $newPassword,
+                    $this->db->table('official_types')->where('id', $official['official_type_id'])->get()->getRowArray()['name'] ?? 'Official'
+                );
+            } else {
+                // Generic credentials email for any other user type
+                (new \App\Libraries\EmailHelper())->sendUserCredentials(
+                    $email, $user['full_name'], $newPassword, $user['role_name']
+                );
+            }
+        }
+
         $this->audit('UPDATE', 'users', $id);
-        return redirect()->to('/admin/users')->with('success', 'User updated successfully.');
+        return redirect()->to('/admin/users')->with('success', 'User updated.' . ($newPassword && $email ? ' Credentials sent to ' . $email . '.' : ''));
     }
 
     // ── POST /admin/users/toggle/:id ─────────────────────────
