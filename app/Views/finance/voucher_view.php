@@ -1,28 +1,123 @@
-<div class="card">
-  <div class="card-header">
-    <i class="bi bi-file-earmark-text me-2"></i>
-    <?= $voucher['voucher_number'] ?>
-  </div>
+<div class="container-fluid py-4">
+  <div class="card shadow-sm border-0">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center py-3 border-bottom">
+      <h5 class="mb-0 fw-bold">
+        <i class="bi bi-file-earmark-text me-2 text-primary"></i>
+        Voucher: <?= $v['voucher_number'] ?>
+      </h5>
+      <div class="no-print">
+        <span class="badge rounded-pill bg-<?= $v['status'] == 'Paid' ? 'success' : ($v['status'] == 'Cancelled' ? 'danger' : 'warning') ?> p-2 px-3 me-2">
+          <?= $v['status'] ?>
+        </span>
 
-  <div class="card-body">
+        <a href="<?= base_url('finance/voucher/print/' . $v['id']) ?>" target="_blank" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-printer me-1"></i> Print
+        </a>
 
-    <div class="row mb-3">
-      <div class="col-md-6">
-        <div><b>Payee:</b> <?= $voucher['payee_name'] ?></div>
-        <div><b>Amount:</b> ₹<?= number_format($voucher['amount']) ?></div>
-      </div>
 
-      <div class="col-md-6">
-        <div><b>Status:</b> <?= $voucher['status'] ?></div>
-        <div><b>Mode:</b> <?= $voucher['payment_mode'] ?></div>
+        <?php if ($v['status'] == 'Pending Approval'): ?>
+          <button type="button" onclick="updateStatus(<?= $v['id'] ?>, 'Approved')" class="btn btn-sm btn-success ms-2">
+            <i class="bi bi-check-circle me-1"></i> Approve
+          </button>
+          <button type="button" onclick="updateStatus(<?= $v['id'] ?>, 'Cancelled')" class="btn btn-sm btn-danger ms-1">
+            <i class="bi bi-x-circle me-1"></i> Reject
+          </button>
+        <?php endif; ?>
       </div>
     </div>
 
-    <?php if ($voucher['status']=='Pending Approval'): ?>
-      <form method="post" action="/finance/voucher/approve/<?= $voucher['id'] ?>">
-        <button class="btn btn-success btn-sm">Approve</button>
-      </form>
-    <?php endif; ?>
+    <div class="card-body">
+      <div class="row mb-4">
+        <div class="col-md-4">
+          <p class="text-muted mb-1 small text-uppercase fw-bold">Voucher Info</p>
+          <strong class="text-primary"><?= $v['voucher_type'] ?></strong><br>
+          <span class="text-dark"><i class="bi bi-calendar-event me-1"></i> <?= date('d-M-Y', strtotime($v['voucher_date'])) ?></span>
+        </div>
+        <div class="col-md-4 border-start">
+          <p class="text-muted mb-1 small text-uppercase fw-bold">Payee Details</p>
+          <strong><?= $v['payee_name'] ?></strong> <span class="text-muted">(<?= $v['payee_type'] ?>)</span><br>
+          <span class="badge bg-light text-dark border">Mode: <?= $v['payment_mode'] ?></span>
+        </div>
+        <div class="col-md-4 border-start">
+          <p class="text-muted mb-1 small text-uppercase fw-bold">Payment Reference</p>
+          <?php if ($v['payment_mode'] == 'Bank'): ?>
+            <div class="small">
+              <strong><?= $v['bank_name'] ?></strong><br>
+              A/C: <?= $v['acc_no'] ?><br>
+              Ref: <span class="text-primary fw-bold"><?= $v['payment_ref'] ?: 'N/A' ?></span>
+            </div>
+          <?php else: ?>
+            <span class="text-muted">Cash Transaction</span>
+          <?php endif; ?>
+        </div>
+      </div>
 
+      <div class="table-responsive">
+        <table class="table table-hover table-bordered">
+          <thead class="table-light">
+            <tr>
+              <th width="5%" class="text-center">#</th>
+              <th>Ledger Head & Item Description</th>
+              <th width="18%" class="text-end">Debit (₹)</th>
+              <th width="18%" class="text-end">Credit (₹)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($items as $index => $item): ?>
+              <tr>
+                <td class="text-center"><?= $index + 1 ?></td>
+                <td>
+                  <div class="fw-bold text-dark"><?= $item['ledger_name'] ?></div>
+                  <div class="small text-muted italic"><?= $item['narration'] ?></div>
+                </td>
+                <td class="text-end fw-bold text-primary"><?= number_format($item['dr_amount'], 2) ?></td>
+                <td class="text-end fw-bold text-danger"><?= number_format($item['cr_amount'], 2) ?></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+          <tfoot class="table-light fw-bold">
+            <tr>
+              <td colspan="2" class="text-end">Grand Total</td>
+              <td class="text-end">₹ <?= number_format($v['total_amount'], 2) ?></td>
+              <td class="text-end">₹ <?= number_format($v['total_amount'], 2) ?></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="alert alert-secondary border-0 bg-light mt-3">
+        <small class="text-muted text-uppercase d-block fw-bold" style="font-size: 0.7rem;">Amount in Words</small>
+        <span class="text-dark fw-bold" style="font-size: 0.9rem;">
+          Rupees <?= ucwords($amountWords) ?> Only
+        </span>
+      </div>
+
+      <div class="row mt-5 pt-3 border-top g-4">
+        <div class="col-md-8">
+          <div class="d-flex align-items-center">
+            <div class="bg-light p-2 rounded me-3">
+              <i class="bi bi-person-check text-primary fs-4"></i>
+            </div>
+            <div>
+              <p class="text-muted mb-0 small">Voucher generated by</p>
+              <p class="mb-0 fw-bold"><?= $v['creator_name'] ?> <span class="fw-normal text-muted">on <?= date('d M Y, h:i A', strtotime($v['created_at'])) ?></span></p>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4 text-center">
+          <div class="border-bottom mx-auto" style="width: 200px; height: 60px;"></div>
+          <p class="mt-2 mb-0 fw-bold">Authorized Signatory</p>
+          <small class="text-muted">JSCA Finance Department</small>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
+
+<script>
+  function updateStatus(id, status) {
+    if (confirm('Are you sure you want to change status to ' + status + '?')) {
+      window.location.href = "<?= base_url('finance/voucher/status/') ?>/" + id + "/" + status;
+    }
+  }
+</script>

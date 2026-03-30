@@ -166,6 +166,9 @@ $routes->group('', ['filter' => 'auth'], function ($routes) {
         $routes->get('voucher/rcpt_create',     'Finance::rcpt_create');
         $routes->post('voucher/getMatchesByTournament',     'Finance::getMatchesByTournament');
         $routes->post('voucher/getOfficialsByType', 'Finance::getOfficialsByType');
+        $routes->post('voucher/final_save', 'Finance::final_save');
+        $routes->get('voucher/print/(:num)', 'Finance::print_voucher/$1');
+        $routes->get('finance/voucher/status/(:num)/(:any)', 'Finance::update_status/$1/$2');
 
         // Group Master
         $routes->get('accgroups', 'Finance::accgroups');

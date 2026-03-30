@@ -164,7 +164,7 @@
                 <div style="font-size:11px;color:#888;"><?= esc($v['payee_name']) ?> · <?= esc($v['payee_type']) ?></div>
               </div>
               <div class="text-end">
-                <div class="fw-bold" style="font-size:14px;">₹<?= number_format($v['amount']) ?></div>
+                <div class="fw-bold" style="font-size:14px;">₹<?= number_format($v['total_amount']) ?></div>
                 <a href="<?= base_url('finance/voucher/view/' . $v['id']) ?>" class="btn btn-xs btn-outline-success" style="font-size:10px;padding:1px 8px;">Review</a>
               </div>
             </div>

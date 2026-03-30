@@ -374,10 +374,10 @@
           <i class="bi bi-currency-rupee"></i> Finance Dashboard
         </a>
         <a href="<?= base_url('finance/vouchers') ?>" class="nav-link <?= str_starts_with(uri_string(), 'finance/vouchers') ? 'active' : '' ?>">
-          <i class="bi bi-receipt"></i> Payment Vouchers
+          <i class="bi bi-receipt"></i> Vouchers
           <?php
           $pendingCount = \Config\Database::connect()
-            ->table('payment_vouchers')
+            ->table('vouchers')
             ->where('status', 'Pending Approval')
             ->countAllResults();
           if ($pendingCount > 0): ?>

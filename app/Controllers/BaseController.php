@@ -12,7 +12,7 @@ use Psr\Log\LoggerInterface;
 abstract class BaseController extends Controller
 {
     protected $request;
-    protected $helpers = ['url', 'form', 'text', 'date'];
+    protected $helpers = ['url', 'form', 'text', 'date', 'number'];
     protected $db;
     protected $session;
     protected $currentUser;
@@ -209,7 +209,7 @@ abstract class BaseController extends Controller
     protected function generateVoucherNumber(): string
     {
         $prefix = 'VCH-' . date('Ym') . '-';
-        $count  = $this->db->table('payment_vouchers')
+        $count  = $this->db->table('vouchers')
             ->like('voucher_number', $prefix)
             ->countAllResults() + 1;
         return $prefix . str_pad($count, 4, '0', STR_PAD_LEFT);

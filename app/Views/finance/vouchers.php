@@ -36,14 +36,21 @@
           <th></th>
         </tr>
       </thead>
-
       <tbody>
-        <?php foreach ($vouchers as $v): ?>
-          <tr>
+
+        <?php foreach ($receipts as $v): ?> <tr>
             <td><?= $v['voucher_number'] ?></td>
-            <td><?= $v['payee_name'] ?></td>
-            <td>₹<?= number_format($v['amount']) ?></td>
-            <td><span class="badge bg-light text-dark"><?= $v['status'] ?></span></td>
+            <td>
+              <small class="text-muted d-block"><?= $v['payee_name'] ?></small>
+              <strong><?= $v['all_ledgers'] ?></strong>
+            </td>
+            <td>₹<?= number_format($v['total_amount'], 2) ?></td>
+            <td>
+              <?php
+              $badgeClass = ($v['status'] == 'Paid') ? 'bg-success' : (($v['status'] == 'Pending Approval') ? 'bg-warning' : 'bg-light text-dark');
+              ?>
+              <span class="badge <?= $badgeClass ?>"><?= $v['status'] ?></span>
+            </td>
             <td><?= date('d M Y', strtotime($v['created_at'])) ?></td>
             <td>
               <a href="/finance/voucher/view/<?= $v['id'] ?>" class="btn btn-xs btn-outline-primary">View</a>
@@ -51,6 +58,7 @@
           </tr>
         <?php endforeach; ?>
       </tbody>
+
 
     </table>
   </div>
@@ -96,12 +104,19 @@
       </thead>
 
       <tbody>
-        <?php foreach ($vouchers as $v): ?>
-          <tr>
+        <?php foreach ($payments as $v): ?> <tr>
             <td><?= $v['voucher_number'] ?></td>
-            <td><?= $v['payee_name'] ?></td>
-            <td>₹<?= number_format($v['amount']) ?></td>
-            <td><span class="badge bg-light text-dark"><?= $v['status'] ?></span></td>
+            <td>
+              <small class="text-muted d-block"><?= $v['payee_name'] ?></small>
+              <strong><?= $v['all_ledgers'] ?></strong>
+            </td>
+            <td>₹<?= number_format($v['total_amount'], 2) ?></td>
+            <td>
+              <?php
+              $badgeClass = ($v['status'] == 'Paid') ? 'bg-success' : (($v['status'] == 'Pending Approval') ? 'bg-warning' : 'bg-light text-dark');
+              ?>
+              <span class="badge <?= $badgeClass ?>"><?= $v['status'] ?></span>
+            </td>
             <td><?= date('d M Y', strtotime($v['created_at'])) ?></td>
             <td>
               <a href="/finance/voucher/view/<?= $v['id'] ?>" class="btn btn-xs btn-outline-primary">View</a>

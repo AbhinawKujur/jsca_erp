@@ -16,143 +16,146 @@
     <i class="bi bi-plus-circle me-2 text-success"></i>Payment Voucher
   </div>
 
-  <div class="card-body">
+  <form action="<?= base_url('finance/voucher/final_save') ?>" method="POST" id="voucher_form">
+    <?= csrf_field() ?> <div class="card">
+      <div class="card-body">
 
-    <div class="row g-3">
+        <div class="row g-3">
 
-      <div class="col-md-4">
-        <label class="form-label">Voucher No.</label>
-        <input type="text" name="voucher_no" class="form-control form-control-sm" value="<?= $voucher; ?>" readonly>
-      </div>
+          <div class="col-md-4">
+            <label class="form-label">Voucher No.</label>
+            <input type="text" name="voucher_no" class="form-control form-control-sm" value="<?= $voucher; ?>" readonly>
+          </div>
 
-      <div class="col-md-4">
-        <label class="form-label">Voucher Date</label>
-        <input type="text" id="voucher_date" name="voucher_date" class="form-control form-control-sm">
-      </div>
+          <div class="col-md-4">
+            <label class="form-label">Voucher Date</label>
+            <input type="text" id="voucher_date" name="voucher_date" class="form-control form-control-sm">
+          </div>
 
-      <div class="col-md-4">
-        <label class="form-label">Payment Mode</label>
-        <select name="payment_mode" id="payment_mode" class="form-select form-select-sm">
-          <option value="Cash">Cash</option>
-          <option value="Bank">Bank</option>
-        </select>
-      </div>
-    </div>
-
-    <div id="bank_details_section" class="col-md-12" style="display:none;">
-      <div class="row">
-        <div class="col-md-4">
-          <label class="form-label">Bank Account No.</label>
-          <select name="bank_account" id="bank_account" class="form-select form-select-sm">
-            <option value="">Select</option>
-            <?php foreach ($bank_acc as $acc): ?>
-              <option value="<?= $acc['id'] ?>" data-ifsc="<?= $acc['ifsc_code'] ?>">
-                <?= $acc['bank_name'] . ' - ' . $acc['acc_no'] ?>
-              </option>
-            <?php endforeach; ?>
-          </select>
+          <div class="col-md-4">
+            <label class="form-label">Payment Mode</label>
+            <select name="payment_mode" id="payment_mode" class="form-select form-select-sm">
+              <option value="Cash">Cash</option>
+              <option value="Bank">Bank</option>
+            </select>
+          </div>
         </div>
 
-        <div class="col-md-4">
-          <label class="form-label">IFSC Code</label>
-          <input type="text" name="bank_ifsc" class="form-control form-control-sm" readonly>
+        <div id="bank_details_section" class="col-md-12" style="display:none;">
+          <div class="row">
+            <div class="col-md-4">
+              <label class="form-label">Bank Account No.</label>
+              <select name="bank_account" id="bank_account" class="form-select form-select-sm">
+                <option value="">Select</option>
+                <?php foreach ($bank_acc as $acc): ?>
+                  <option value="<?= $acc['id'] ?>" data-ifsc="<?= $acc['ifsc_code'] ?>">
+                    <?= $acc['bank_name'] . ' - ' . $acc['acc_no'] ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">IFSC Code</label>
+              <input type="text" name="bank_ifsc" class="form-control form-control-sm" readonly>
+            </div>
+
+            <div class="col-md-4" id="payment_thrgh_section" style="display:none;">
+              <label class="form-label">Payment Through</label>
+              <select name="payment_thrgh" id="payment_thrgh" class="form-select form-select-sm">
+                <option value="">Select</option>
+                <option value="NEFT">NEFT</option>
+                <option value="RTGS">RTGS</option>
+                <option value="Cheque">Cheque</option>
+              </select>
+            </div>
+
+            <div class="col-md-4" id="ref_no_section" style="display:none;">
+              <label class="form-label" id="ref_label">Reference No.</label>
+              <input type="text" name="reference_no" class="form-control form-control-sm">
+            </div>
+          </div>
         </div>
 
-        <div class="col-md-4" id="payment_thrgh_section" style="display:none;">
-          <label class="form-label">Payment Through</label>
-          <select name="payment_thrgh" id="payment_thrgh" class="form-select form-select-sm">
-            <option value="">Select</option>
-            <option value="NEFT">NEFT</option>
-            <option value="RTGS">RTGS</option>
-            <option value="Cheque">Cheque</option>
-          </select>
+
+        <div class="row g-3">
+
+          <div class="col-md-3">
+            <label class="form-label">Amount</label>
+            <input type="number" name="amount" class="form-control form-control-sm">
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">Dr./Cr.</label>
+            <select name="dr_cr" id="transaction_type" class="form-select form-select-sm">
+              <option value="">Select</option>
+              <option value="Dr">Dr.</option>
+              <option value="Cr">Cr.</option>
+            </select>
+          </div>
+
+
+
+
+          <div class="col-md-4">
+            <label class="form-label">Ledger Heads</label>
+            <select name="ledger_id" id="ledger_head" class="form-select form-select-sm">
+              <option value="">-- Select Type First --</option>
+              <?php foreach ($ledger_heads as $head): ?>
+                <option value="<?= $head['id'] ?>" data-type="<?= $head['group_id'] ?>" style="display:none;">
+                  <?= esc($head['name']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
+
+
+
+          <div class="col-12">
+            <label>Narration</label>
+            <textarea name="narrations" id="narrations" class="form-control form-control-sm"></textarea>
+          </div>
+
+          <div class="col-12">
+            <button type="button" id="add_row" class="btn btn-primary btn-sm mt-4">Add to List</button>
+          </div>
+
         </div>
 
-        <div class="col-md-4" id="ref_no_section" style="display:none;">
-          <label class="form-label" id="ref_label">Reference No.</label>
-          <input type="text" name="reference_no" class="form-control form-control-sm">
+        <div class="table-responsive mt-3">
+          <table class="table table-bordered table-sm" id="voucher_items_table">
+            <thead class="table-light">
+              <tr>
+                <th width="5%">SL</th>
+                <th width="40%">Ledger Head</th>
+                <th width="20%">Dr. Amount</th>
+                <th width="20%">Cr. Amount</th>
+                <th width="5%">Action</th>
+              </tr>
+            </thead>
+            <tbody id="voucher_body">
+            </tbody>
+            <tfoot>
+              <tr class="fw-bold bg-light">
+                <td colspan="2" class="text-end">Total:</td>
+                <td id="total_dr">0.00</td>
+                <td id="total_cr">0.00</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
+
+        <div class="d-flex justify-content-between align-items-center mt-3">
+          <div id="balance_status" class="badge bg-danger p-2">Unbalanced: Diff ₹0.00</div>
+          <button type="submit" id="final_save_btn" class="btn btn-success" disabled>
+            <i class="bi bi-cloud-upload me-1"></i>Finalize Voucher
+          </button>
+        </div>
+
       </div>
-    </div>
-
-
-    <div class="row g-3">
-
-      <div class="col-md-3">
-        <label class="form-label">Amount</label>
-        <input type="number" name="amount" class="form-control form-control-sm">
-      </div>
-
-      <div class="col-md-3">
-        <label class="form-label">Dr./Cr.</label>
-        <select name="dr_cr" id="transaction_type" class="form-select form-select-sm">
-          <option value="">Select</option>
-          <option value="Dr">Dr.</option>
-          <option value="Cr">Cr.</option>
-        </select>
-      </div>
-
-
-
-
-      <div class="col-md-4">
-        <label class="form-label">Ledger Heads</label>
-        <select name="ledger_id" id="ledger_head" class="form-select form-select-sm">
-          <option value="">-- Select Type First --</option>
-          <?php foreach ($ledger_heads as $head): ?>
-            <option value="<?= $head['id'] ?>" data-type="<?= $head['group_id'] ?>" style="display:none;">
-              <?= esc($head['name']) ?>
-            </option>
-          <?php endforeach; ?>
-        </select>
-      </div>
-
-
-
-
-      <div class="col-12">
-        <label>Narration</label>
-        <textarea name="narrations" id="narrations" class="form-control form-control-sm"></textarea>
-      </div>
-
-      <div class="col-12">
-        <button type="button" id="add_row" class="btn btn-primary btn-sm mt-4">Add to List</button>
-      </div>
-
-    </div>
-
-    <div class="table-responsive mt-3">
-      <table class="table table-bordered table-sm" id="voucher_items_table">
-        <thead class="table-light">
-          <tr>
-            <th width="5%">SL</th>
-            <th width="40%">Ledger Head</th>
-            <th width="20%">Dr. Amount</th>
-            <th width="20%">Cr. Amount</th>
-            <th width="5%">Action</th>
-          </tr>
-        </thead>
-        <tbody id="voucher_body">
-        </tbody>
-        <tfoot>
-          <tr class="fw-bold bg-light">
-            <td colspan="2" class="text-end">Total:</td>
-            <td id="total_dr">0.00</td>
-            <td id="total_cr">0.00</td>
-            <td></td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-
-    <div class="d-flex justify-content-between align-items-center mt-3">
-      <div id="balance_status" class="badge bg-danger p-2">Unbalanced: Diff ₹0.00</div>
-      <button type="submit" id="final_save_btn" class="btn btn-success" disabled>
-        <i class="bi bi-cloud-upload me-1"></i>Finalize Voucher
-      </button>
-    </div>
-
-  </div>
+  </form>
 </div>
 
 

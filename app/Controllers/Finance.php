@@ -9,30 +9,37 @@ class Finance extends BaseController
     {
         $this->requirePermission('finance.view');
 
+        // 1. Summary Statistics
         $summary = [
             'total_paid'      => $this->getSum('Paid'),
+            'total_draft'     => $this->getSum('Draft'),
             'total_pending'   => $this->getSum('Pending Approval'),
             'total_approved'  => $this->getSum('Approved'),
-            'total_rejected'  => $this->getSum('Rejected'),
-            'voucher_count'   => $this->db->table('payment_vouchers')->countAllResults(),
-            'pending_count'   => $this->db->table('payment_vouchers')->where('status', 'Pending Approval')->countAllResults(),
+            'total_rejected'  => $this->getSum('Cancelled'),
+            'voucher_count'   => $this->db->table('vouchers')->countAllResults(),
+            'pending_count'   => $this->db->table('vouchers')->where('status', 'Pending Approval')->countAllResults(),
         ];
 
+        // 2. Monthly Trend (Updated to use total_amount)
         $monthlyTrend = $this->db->query("
-            SELECT DATE_FORMAT(created_at, '%Y-%m') as month,
-                   SUM(CASE WHEN status = 'Paid' THEN amount ELSE 0 END) as paid,
-                   COUNT(*) as total_vouchers
-            FROM payment_vouchers
-            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
-            GROUP BY month ORDER BY month ASC
+        SELECT DATE_FORMAT(created_at, '%Y-%m') as month,
+               SUM(CASE WHEN status = 'Paid' THEN total_amount ELSE 0 END) as paid,
+               COUNT(*) as total_vouchers
+        FROM vouchers
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+        GROUP BY month 
+        ORDER BY month ASC
         ")->getResultArray();
 
-        $byPayeeType = $this->db->table('payment_vouchers')
-            ->select('payee_type, SUM(amount) as total, COUNT(*) as count')
+        // 3. Distribution by Payee Type (Updated to use total_amount)
+        $byPayeeType = $this->db->table('vouchers')
+            ->select('payee_type, SUM(total_amount) as total, COUNT(*) as count')
             ->where('status', 'Paid')
             ->groupBy('payee_type')
-            ->get()->getResultArray();
+            ->get()
+            ->getResultArray();
 
+        // 4. Bank Account Overview
         $bankAccounts = $this->db->table('bank_acc_master')
             ->select('id, bank_name, acc_no, opening_bal, acc_type, updated_at')
             ->get()
@@ -50,35 +57,22 @@ class Finance extends BaseController
     // ── GET /finance/vouchers ─────────────────────────────────
     public function vouchers()
     {
-        $this->requirePermission('finance.view');
+        $db = \Config\Database::connect();
 
-        $status   = $this->request->getGet('status');
-        $search   = $this->request->getGet('q');
-        $perPage  = 25;
-        $page     = (int)($this->request->getGet('page') ?? 1);
+        // This query gets the voucher AND a comma-separated list of all ledger names in it
+        $builder = $db->table('vouchers v');
+        $builder->select('v.*, GROUP_CONCAT(l.name SEPARATOR ", ") as all_ledgers');
+        $builder->join('voucher_items vi', 'vi.voucher_id = v.id', 'left');
+        $builder->join('ledger_heads l', 'l.id = vi.ledger_id', 'left'); // Adjust 'ledgers' to your actual table name
+        $builder->groupBy('v.id');
+        $builder->orderBy('v.created_at', 'DESC');
 
-        $builder = $this->db->table('payment_vouchers pv')
-            ->select('pv.*, u1.full_name as created_by_name, u2.full_name as approved_by_name, t.name as tournament_name')
-            ->join('users u1', 'u1.id = pv.created_by', 'left')
-            ->join('users u2', 'u2.id = pv.approved_by', 'left')
-            ->join('tournaments t', 't.id = pv.tournament_id', 'left');
+        // Separate them for your two tables in the view
+        $data['receipts'] = (clone $builder)->where('voucher_type', 'Receipt')->get()->getResultArray();
 
-        if ($status)  $builder->where('pv.status', $status);
-        if ($search)  $builder->groupStart()->like('pv.voucher_number', $search)->orLike('pv.payee_name', $search)->groupEnd();
+        $data['payments'] = (clone $builder)->where('voucher_type', 'Payment')->get()->getResultArray();
 
-        $total    = $builder->countAllResults(false);
-        $vouchers = $builder->orderBy('pv.created_at', 'DESC')
-            ->limit($perPage, ($page - 1) * $perPage)
-            ->get()->getResultArray();
-
-        return $this->render('finance/vouchers', [
-            'pageTitle' => 'Payment Vouchers — JSCA ERP',
-            'vouchers'  => $vouchers,
-            'total'     => $total,
-            'page'      => $page,
-            'perPage'   => $perPage,
-            'status'    => $status,
-        ]);
+        return $this->render('finance/vouchers', $data);
     }
 
     // ── GET /finance/voucher/create ───────────────────────────
@@ -141,7 +135,7 @@ class Finance extends BaseController
             'created_at'    => date('Y-m-d H:i:s'),
         ];
 
-        $this->db->table('payment_vouchers')->insert($data);
+        $this->db->table('vouchers')->insert($data);
         $id = $this->db->insertID();
 
         $this->audit('CREATE_VOUCHER', 'finance', $id, null, $data);
@@ -155,26 +149,65 @@ class Finance extends BaseController
     {
         $this->requirePermission('finance.view');
 
-        $voucher = $this->db->table('payment_vouchers pv')
-            ->select('pv.*, u1.full_name as created_by_name, u2.full_name as approved_by_name,
-                      f.match_number, f.match_date, ta.name as team_a, tb.name as team_b,
-                      t.name as tournament_name')
-            ->join('users u1', 'u1.id = pv.created_by', 'left')
-            ->join('users u2', 'u2.id = pv.approved_by', 'left')
-            ->join('fixtures f', 'f.id = pv.fixture_id', 'left')
-            ->join('teams ta', 'ta.id = f.team_a_id', 'left')
-            ->join('teams tb', 'tb.id = f.team_b_id', 'left')
-            ->join('tournaments t', 't.id = pv.tournament_id', 'left')
-            ->where('pv.id', $id)
+        helper('number');
+
+        $voucher = $this->db->table('vouchers v')
+            ->select('v.*, b.bank_name, b.acc_no, u.full_name as creator_name')
+            ->join('bank_acc_master b', 'b.id = v.bank_account_id', 'left')
+            ->join('users u', 'u.id = v.created_by', 'left')
+            ->where('v.id', $id)
             ->get()->getRowArray();
 
-        if (!$voucher) return redirect()->to('/finance/vouchers')->with('error', 'Voucher not found.');
+        if (!$voucher) {
+            return redirect()->back()->with('error', 'Voucher not found.');
+        }
+
+        // 2. Fetch all line items (the "Add to List" data)
+        $items = $this->db->table('voucher_items vi')
+            ->select('vi.*, lh.name as ledger_name')
+            ->join('ledger_heads lh', 'lh.id = vi.ledger_id', 'left')
+            ->where('vi.voucher_id', $id)
+            ->get()->getResultArray();
 
         return $this->render('finance/voucher_view', [
-            'pageTitle' => 'Voucher ' . $voucher['voucher_number'],
-            'voucher'   => $voucher,
-            'canApprove' => $this->can('finance.approve'),
+            'pageTitle' => 'Voucher Details — ' . $voucher['voucher_number'],
+            'v'         => $voucher,
+            'items'     => $items,
+            'amountWords' => $this->amountInWords($voucher['total_amount'])
         ]);
+    }
+
+    public function print_voucher($id)
+    {
+
+        $this->requirePermission('finance.view');
+
+        $voucher = $this->db->table('vouchers v')
+            ->select('v.*, b.bank_name, b.acc_no, u.full_name as creator_name')
+            ->join('bank_acc_master b', 'b.id = v.bank_account_id', 'left')
+            ->join('users u', 'u.id = v.created_by', 'left')
+            ->where('v.id', $id)
+            ->get()->getRowArray();
+
+        if (!$voucher) {
+            return redirect()->back()->with('error', 'Voucher not found.');
+        }
+
+        // 2. Fetch all line items (the "Add to List" data)
+        $items = $this->db->table('voucher_items vi')
+            ->select('vi.*, lh.name as ledger_name')
+            ->join('ledger_heads lh', 'lh.id = vi.ledger_id', 'left')
+            ->where('vi.voucher_id', $id)
+            ->get()->getResultArray();
+
+        $data = [
+            'pageTitle' => 'Voucher Details — ' . $voucher['voucher_number'],
+            'v'         => $voucher,
+            'items'     => $items,
+            'amountWords' => $this->amountInWords($voucher['total_amount'])
+        ];
+
+        return view('finance/voucher_print', $data);
     }
 
     // ── POST /finance/voucher/approve/:id ────────────────────
@@ -182,12 +215,12 @@ class Finance extends BaseController
     {
         $this->requirePermission('finance.approve');
 
-        $voucher = $this->db->table('payment_vouchers')->where('id', $id)->get()->getRowArray();
+        $voucher = $this->db->table('vouchers')->where('id', $id)->get()->getRowArray();
         if (!$voucher || $voucher['status'] !== 'Pending Approval') {
             return redirect()->back()->with('error', 'Voucher not found or not pending approval.');
         }
 
-        $this->db->table('payment_vouchers')->where('id', $id)->update([
+        $this->db->table('vouchers')->where('id', $id)->update([
             'status'      => 'Approved',
             'approved_by' => session('user_id'),
             'approved_at' => date('Y-m-d H:i:s'),
@@ -208,10 +241,10 @@ class Finance extends BaseController
     {
         $this->requirePermission('finance.approve');
 
-        $voucher = $this->db->table('payment_vouchers')->where('id', $id)->get()->getRowArray();
+        $voucher = $this->db->table('vouchers')->where('id', $id)->get()->getRowArray();
         if (!$voucher) return redirect()->back()->with('error', 'Voucher not found.');
 
-        $this->db->table('payment_vouchers')->where('id', $id)->update([
+        $this->db->table('vouchers')->where('id', $id)->update([
             'status'      => 'Rejected',
             'approved_by' => session('user_id'),
             'approved_at' => date('Y-m-d H:i:s'),
@@ -229,7 +262,7 @@ class Finance extends BaseController
     {
         $this->requirePermission('finance.approve');
 
-        $this->db->table('payment_vouchers')->where('id', $id)->update([
+        $this->db->table('vouchers')->where('id', $id)->update([
             'status'      => 'Paid',
             'paid_at'     => date('Y-m-d H:i:s'),
             'payment_ref' => $this->request->getPost('payment_ref'),
@@ -277,14 +310,14 @@ class Finance extends BaseController
             if (empty($off['name'])) continue;
 
             // Don't duplicate if voucher already exists for this fixture+official
-            $existing = $this->db->table('payment_vouchers')
+            $existing = $this->db->table('vouchers')
                 ->where('fixture_id', $fixtureId)
                 ->where('payee_name', $off['name'])
                 ->countAllResults();
 
             if ($existing > 0) continue;
 
-            $this->db->table('payment_vouchers')->insert([
+            $this->db->table('vouchers')->insert([
                 'voucher_number' => $this->generateVoucherNumber(),
                 'fixture_id'     => $fixtureId,
                 'tournament_id'  => $fixture['tournament_id'],
@@ -314,7 +347,7 @@ class Finance extends BaseController
     {
         $this->requirePermission('finance.view');
 
-        $byTournament = $this->db->table('payment_vouchers pv')
+        $byTournament = $this->db->table('vouchers pv')
             ->select('t.name as tournament, SUM(pv.amount) as total, COUNT(*) as voucher_count,
                       SUM(CASE WHEN pv.status = "Paid" THEN pv.amount ELSE 0 END) as paid,
                       SUM(CASE WHEN pv.status = "Pending Approval" THEN pv.amount ELSE 0 END) as pending')
@@ -334,7 +367,7 @@ class Finance extends BaseController
     {
         $this->requirePermission('reports.finance');
 
-        $vouchers = $this->db->table('payment_vouchers pv')
+        $vouchers = $this->db->table('vouchers pv')
             ->select('pv.voucher_number, pv.payee_name, pv.payee_type, pv.amount, pv.status, pv.payment_mode,
                       pv.bank_account, pv.bank_ifsc, pv.bank_name, pv.description,
                       pv.created_at, pv.approved_at, pv.paid_at, pv.payment_ref,
@@ -359,8 +392,14 @@ class Finance extends BaseController
     // ─── Private helpers ──────────────────────────────────────
     private function getSum(string $status): float
     {
-        return (float)$this->db->table('payment_vouchers')
-            ->where('status', $status)->selectSum('amount')->get()->getRowArray()['amount'] ?? 0;
+        // Use selectSum with an explicit alias 'total' for reliability
+        $result = $this->db->table('vouchers')
+            ->selectSum('total_amount', 'total')
+            ->where('status', $status)
+            ->get()
+            ->getRowArray();
+
+        return (float)($result['total'] ?? 0);
     }
 
 
@@ -501,5 +540,170 @@ class Finance extends BaseController
             ->get()->getResultArray();
 
         return $this->response->setJSON($officials);
+    }
+
+    public function final_save()
+    {
+        $voucherType = $this->request->getPost('voucher_type') ?? 'Payment';
+
+        $headerData = [
+            'voucher_number' => $this->request->getPost('voucher_no'),
+            'voucher_type'   => $voucherType,
+            'voucher_date'   => date('Y-m-d', strtotime($this->request->getPost('voucher_date'))),
+            'tournament_id'  => $this->request->getPost('tournament') ?: null,
+            'fixture_id'     => $this->request->getPost('match') ?: null,
+            'official_id'    => $this->request->getPost('official_name') ?: null,
+            'payee_name'     => $this->request->getPost('payee_name') ?: $this->request->getPost('official_name'),
+            'payee_type'     => $this->request->getPost('pay_to') ?: 'Other',
+            'payment_mode'   => $this->request->getPost('payment_mode'),
+            'bank_account_id' => $this->request->getPost('bank_account') ?: null,
+            'bank_ifsc'      => $this->request->getPost('bank_ifsc') ?: null,
+            'payment_ref'    => $this->request->getPost('reference_no') ?: null,
+            'status'         => 'Pending Approval', // Default status for ERP workflow
+            'created_by'     => session()->get('user_id'), // Assuming session management is active
+            'created_at'     => date('Y-m-d H:i:s')
+        ];
+
+        // 2. Collect Table Items (From the "Add to List" jQuery table)
+        $items = $this->request->getPost('items');
+
+        if (empty($items['ledger_id'])) {
+            return redirect()->back()->with('error', 'Voucher must contain at least one ledger entry.');
+        }
+
+        // 3. Start Database Transaction
+        $this->db->transStart();
+
+        try {
+            // Insert Header
+            $this->db->table('vouchers')->insert($headerData);
+            $voucherId = $this->db->insertID();
+
+            // Prepare Items for Batch Insert
+            $insertItems = [];
+            $totalAmount = 0;
+
+            foreach ($items['ledger_id'] as $key => $ledgerId) {
+                $dr = (float)$items['dr'][$key];
+                $cr = (float)$items['cr'][$key];
+
+                $insertItems[] = [
+                    'voucher_id' => $voucherId,
+                    'ledger_id'  => $ledgerId,
+                    'narration'  => $items['narr'][$key],
+                    'dr_amount'  => $dr,
+                    'cr_amount'  => $cr,
+                ];
+
+                // Calculate Total Amount (Sum of Debits or Credits since they are equal)
+                $totalAmount += $dr;
+            }
+
+            // Insert All Items at once
+            $this->db->table('voucher_items')->insertBatch($insertItems);
+
+            // Update Total Amount in Header
+            $this->db->table('vouchers')
+                ->where('id', $voucherId)
+                ->update(['total_amount' => $totalAmount]);
+
+            $this->db->transComplete();
+
+            if ($this->db->transStatus() === FALSE) {
+                return redirect()->back()->with('error', 'Transaction Failed: Database error.');
+            }
+
+            return redirect()->to('/finance/vouchers')->with('success', "Voucher {$headerData['voucher_number']} saved successfully.");
+        } catch (\Exception $e) {
+            $this->db->transRollback();
+            return redirect()->back()->with('error', 'Error: ' . $e->getMessage());
+        }
+    }
+
+    private function amountInWords($number)
+    {
+        $decimal = round($number - ($no = floor($number)), 2) * 100;
+        $hundred = null;
+        $digits_length = strlen($no);
+        $i = 0;
+        $str = array();
+        $words = array(
+            0 => '',
+            1 => 'one',
+            2 => 'two',
+            3 => 'three',
+            4 => 'four',
+            5 => 'five',
+            6 => 'six',
+            7 => 'seven',
+            8 => 'eight',
+            9 => 'nine',
+            10 => 'ten',
+            11 => 'eleven',
+            12 => 'twelve',
+            13 => 'thirteen',
+            14 => 'fourteen',
+            15 => 'fifteen',
+            16 => 'sixteen',
+            17 => 'seventeen',
+            18 => 'eighteen',
+            19 => 'nineteen',
+            20 => 'twenty',
+            30 => 'thirty',
+            40 => 'forty',
+            50 => 'fifty',
+            60 => 'sixty',
+            70 => 'seventy',
+            80 => 'eighty',
+            90 => 'ninety'
+        );
+        $digits = array('', 'hundred', 'thousand', 'lakh', 'crore');
+        while ($i < $digits_length) {
+            $divider = ($i == 2) ? 10 : 100;
+            $number = floor($no % $divider);
+            $no = floor($no / $divider);
+            $i += $divider == 10 ? 1 : 2;
+            if ($number) {
+                $plural = (($counter = count($str)) && $number > 9) ? 's' : null;
+                $hundred = ($counter == 1 && $str[0]) ? ' and ' : null;
+                $str[] = ($number < 21) ? $words[$number] . ' ' . $digits[$counter] . $plural . ' ' . $hundred : $words[floor($number / 10) * 10] . ' ' . $words[$number % 10] . ' ' . $digits[$counter] . $plural . ' ' . $hundred;
+            } else $str[] = null;
+        }
+        $Rupees = implode('', array_reverse($str));
+        $paise = ($decimal > 0) ? "." . ($words[$decimal / 10] . " " . $words[$decimal % 10]) . ' Paise' : '';
+        return ($Rupees ? $Rupees . 'Rupees ' : '') . $paise;
+    }
+
+    public function update_status(int $id, string $status)
+    {
+        // 1. Security Check: Only allow specific status changes
+        $allowedStatuses = ['Approved', 'Paid', 'Cancelled', 'Rejected'];
+        if (!in_array($status, $allowedStatuses)) {
+            return redirect()->back()->with('error', 'Invalid status transition.');
+        }
+
+        // 2. Permission Check (Optional but recommended)
+        // $this->requirePermission('finance.approve');
+
+        $db = \Config\Database::connect();
+
+        // 3. Update the Voucher
+        $updated = $db->table('vouchers')
+            ->where('id', $id)
+            ->update([
+                'status'     => $status,
+                'updated_by' => $this->currentUser['id'], // Tracking who took action
+                'updated_at' => date('Y-m-d H:i:s')
+            ]);
+
+        if ($updated) {
+            $msg = ($status === 'Cancelled' || $status === 'Rejected')
+                ? "Voucher has been $status."
+                : "Voucher successfully $status!";
+
+            return redirect()->to(base_url('finance/voucher/view/' . $id))->with('success', $msg);
+        } else {
+            return redirect()->back()->with('error', 'Failed to update voucher status.');
+        }
     }
 }

@@ -17,8 +17,8 @@ class Dashboard extends BaseController
             'activeTournaments' => $this->db->table('tournaments')->whereIn('status', ['Ongoing', 'Fixture Ready'])->countAllResults(),
             'totalMatches'      => $this->db->table('fixtures')->countAllResults(),
             'completedMatches'  => $this->db->table('fixtures')->where('status', 'Completed')->countAllResults(),
-            'pendingVouchers'   => $this->db->table('payment_vouchers')->where('status', 'Pending Approval')->countAllResults(),
-            'totalDisbursed'    => $this->db->table('payment_vouchers')->where('status', 'Paid')->selectSum('amount')->get()->getRowArray()['amount'] ?? 0,
+            'pendingVouchers'   => $this->db->table('vouchers')->where('status', 'Pending Approval')->countAllResults(),
+            'totalDisbursed'    => $this->db->table('vouchers')->where('status', 'Paid')->selectSum('total_amount')->get()->getRowArray()['total_amount'] ?? 0,
 
             // Live matches
             'liveMatches' => $this->db->table('fixtures f')
@@ -71,7 +71,7 @@ class Dashboard extends BaseController
                 ->get()->getResultArray(),
 
             // Pending vouchers list
-            'pendingVouchersList' => $this->db->table('payment_vouchers pv')
+            'pendingVouchersList' => $this->db->table('vouchers pv')
                 ->select('pv.*, u.full_name as created_by_name')
                 ->join('users u', 'u.id = pv.created_by', 'left')
                 ->where('pv.status', 'Pending Approval')
